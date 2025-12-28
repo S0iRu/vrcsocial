@@ -1,23 +1,40 @@
+'use client';
+
 import { ChevronRight, Search, Filter, History, MapPin, Globe, User, Radio, RefreshCcw } from "lucide-react";
+import { useEffect, useState } from "react";
 
 export default function LogsPage() {
-    // Mock Data for Logs
-    const logs = [
-        { id: 1, date: "12/28 23:00", type: "OnLine", user: "lufe_", detail: "Traveling", icon: Radio, color: "text-green-400" },
-        { id: 2, date: "12/28 22:59", type: "Avatar", user: "Zewai", detail: "LeeChocoMAN... (Avatar Changed)", icon: User, color: "text-blue-400" },
-        { id: 3, date: "12/28 22:58", type: "GPS", user: "kanamari", detail: "Stellix #bamobamos's Instance friends 🇯🇵", icon: MapPin, color: "text-orange-400" },
-        { id: 4, date: "12/28 22:54", type: "OnLine", user: "yukimidai", detail: "Private", icon: Radio, color: "text-green-400" },
-        { id: 5, date: "12/28 22:50", type: "GPS", user: "ToMoSan", detail: "Private", icon: MapPin, color: "text-orange-400" },
-        { id: 6, date: "12/28 22:50", type: "Status", user: "ToMoSan", detail: "🟢 -> 🟠", icon: RefreshCcw, color: "text-yellow-400" },
-        { id: 7, date: "12/28 22:45", type: "GPS", user: "kanamari", detail: "ゆきあかり -warm light- #68981 friends+ 🇯🇵", icon: MapPin, color: "text-orange-400" },
-        { id: 8, date: "12/28 22:45", type: "Offline", user: "cakno", detail: "あき Home_2.3 #71520 friends! 🇯🇵", icon: Radio, color: "text-slate-500" },
-        { id: 9, date: "12/28 22:44", type: "OnLine", user: "kanamari", detail: "Private", icon: Radio, color: "text-green-400" },
-        { id: 10, date: "12/28 22:09", type: "GPS", user: "hatomesui", detail: "CafeS2 # 「桜愛しあ」のインスタンス groupPlus(しあちゃんかわいい) 🇯🇵", icon: MapPin, color: "text-orange-400" },
-        { id: 11, date: "12/28 22:09", type: "GPS", user: "_桜愛しあ", detail: "CafeS2 # 「桜愛しあ」のインスタンス groupPlus(しあちゃんかわいい) 🇯🇵", icon: MapPin, color: "text-orange-400" },
-        { id: 12, date: "12/28 22:09", type: "GPS", user: "ぱんのみみ", detail: "CafeS2 # 「桜愛しあ」のインスタンス groupPlus(しあちゃんかわいい) 🇯🇵", icon: MapPin, color: "text-orange-400" },
-        { id: 13, date: "12/28 22:08", type: "GPS", user: "cakno", detail: "あき Home_2.3 #71520 friends!", icon: MapPin, color: "text-orange-400" },
-        { id: 14, date: "12/28 22:06", type: "GPS", user: "cakno", detail: "あき Home_2.3 #31790 friends 🇺🇸", icon: MapPin, color: "text-orange-400" },
-    ];
+    const [logs, setLogs] = useState<any[]>([]);
+
+    useEffect(() => {
+        const loadLogs = () => {
+            if (typeof window !== 'undefined') {
+                const stored = localStorage.getItem('vrc_logs');
+                if (stored) {
+                    try {
+                        setLogs(JSON.parse(stored));
+                    } catch (e) {
+                        console.error(e);
+                    }
+                }
+            }
+        };
+
+        loadLogs();
+        // Update logs view periodically as they might be updated by the main dashboard loop
+        const interval = setInterval(loadLogs, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const getLogStyle = (type: string) => {
+        switch (type) {
+            case 'OnLine': return { icon: Radio, color: 'text-green-400' };
+            case 'GPS': return { icon: MapPin, color: 'text-orange-400' };
+            case 'Offline': return { icon: Radio, color: 'text-slate-500' };
+            case 'Status': return { icon: RefreshCcw, color: 'text-yellow-400' };
+            default: return { icon: User, color: 'text-blue-400' };
+        }
+    };
 
     return (
         <div className="space-y-6 pb-20 h-full flex flex-col">
@@ -58,44 +75,57 @@ export default function LogsPage() {
 
                 {/* Table Body (Scrollable) */}
                 <div className="overflow-y-auto flex-1 custom-scrollbar">
-                    {logs.map((log) => (
-                        <div key={log.id} className="
-               grid grid-cols-1 md:grid-cols-[40px_100px_80px_120px_1fr] 
-               gap-y-2 gap-x-4 px-4 py-3 md:py-2.5 
-               border-b border-white/5 items-start md:items-center 
-               hover:bg-white/5 transition-colors text-sm group cursor-pointer
-             ">
-                            {/* Expand Icon (Hidden on Mobile) */}
-                            <div className="hidden md:flex justify-center text-slate-500 group-hover:text-white">
-                                <ChevronRight className="w-4 h-4" />
-                            </div>
-
-                            {/* Mobile: First Row (Type & User & Date) */}
-                            <div className="md:contents">
-                                <div className="flex md:hidden items-center justify-between mb-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`font-bold ${log.color}`}>{log.type}</span>
-                                        <span className="text-white font-bold">{log.user}</span>
-                                    </div>
-                                    <span className="text-xs text-slate-500 font-mono">{log.date}</span>
-                                </div>
-
-                                {/* Desktop: Columns */}
-                                <div className="hidden md:block text-slate-300 font-mono text-xs">{log.date}</div>
-                                <div className={`hidden md:flex font-medium ${log.color} items-center gap-1.5`}>
-                                    {log.type}
-                                </div>
-                                <div className="hidden md:block text-white font-medium truncate">{log.user}</div>
-                            </div>
-
-                            {/* Detail (Full Width on Mobile) */}
-                            <div className="text-slate-300 break-words md:truncate flex items-start md:items-center gap-2 text-xs md:text-sm leading-relaxed">
-                                {log.detail}
-                                {log.detail.includes("🇯🇵") && <span className="text-[10px] bg-slate-700 px-1 rounded text-slate-300 shrink-0">JP</span>}
-                            </div>
+                    {logs.length === 0 ? (
+                        <div className="p-10 text-center text-slate-500 text-sm">
+                            Waiting for activity logs...
                         </div>
-                    ))}
+                    ) : (
+                        logs.map((log) => {
+                            const style = getLogStyle(log.type);
+                            const Icon = style.icon;
+
+                            return (
+                                <div key={log.id} className="
+                                    grid grid-cols-1 md:grid-cols-[40px_100px_80px_120px_1fr] 
+                                    gap-y-2 gap-x-4 px-4 py-3 md:py-2.5 
+                                    border-b border-white/5 items-start md:items-center 
+                                    hover:bg-white/5 transition-colors text-sm group cursor-pointer
+                                ">
+                                    {/* Expand Icon */}
+                                    <div className="hidden md:flex justify-center text-slate-500 group-hover:text-white">
+                                        <ChevronRight className="w-4 h-4" />
+                                    </div>
+
+                                    {/* Mobile View */}
+                                    <div className="md:contents">
+                                        <div className="flex md:hidden items-center justify-between mb-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className={`font-bold ${log.color || style.color}`}>{log.type}</span>
+                                                <span className="text-white font-bold">{log.user}</span>
+                                            </div>
+                                            <span className="text-xs text-slate-500 font-mono">{log.date}</span>
+                                        </div>
+
+                                        {/* Desktop View */}
+                                        <div className="hidden md:block text-slate-300 font-mono text-xs">{log.date}</div>
+                                        <div className={`hidden md:flex font-medium ${log.color || style.color} items-center gap-1.5`}>
+                                            <Icon className="w-3.5 h-3.5" />
+                                            {log.type}
+                                        </div>
+                                        <div className="hidden md:block text-white font-medium truncate">{log.user}</div>
+                                    </div>
+
+                                    {/* Detail */}
+                                    <div className="text-slate-300 break-words md:truncate flex items-start md:items-center gap-2 text-xs md:text-sm leading-relaxed">
+                                        {log.detail}
+                                        {typeof log.detail === 'string' && log.detail.includes("🇯🇵") && <span className="text-[10px] bg-slate-700 px-1 rounded text-slate-300 shrink-0">JP</span>}
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
                 </div>
+
 
                 {/* Footer / Pagination */}
                 <div className="p-3 border-t border-white/10 bg-slate-800/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">

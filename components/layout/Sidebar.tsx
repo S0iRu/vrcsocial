@@ -1,11 +1,47 @@
+'use client';
+
 import Link from 'next/link';
-import { Settings, Star, History } from 'lucide-react';
+import { Star, History, LogOut } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 const Sidebar = () => {
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      if (typeof window === 'undefined') return;
+      const creds = localStorage.getItem('vrc_creds');
+      if (!creds) return;
+
+      try {
+        const res = await fetch('/api/user', {
+          headers: { 'Authorization': `Basic ${creds}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchUser();
+  }, []);
+
+  const handleLogout = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('vrc_creds');
+      // localStorage.removeItem('vrc_logs');
+    }
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) { }
+    window.location.href = '/login';
+  };
+
   const navItems = [
     { icon: Star, label: 'Favorites', href: '/' },
     { icon: History, label: 'Logs', href: '/logs' },
-    { icon: Settings, label: 'Settings', href: '/settings' },
   ];
 
   return (
@@ -32,14 +68,26 @@ const Sidebar = () => {
         </nav>
 
         <div className="p-4 border-t border-white/5">
-          <div className="glass-card p-3 rounded-xl flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">
-              U
+          <div className="glass-card p-3 rounded-xl flex items-center gap-3 relative pr-10">
+            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold overflow-hidden shadow-sm border border-white/10 shrink-0">
+              {user?.currentAvatarThumbnailImageUrl ? (
+                <img src={user.currentAvatarThumbnailImageUrl} alt="User" className="w-full h-full object-cover" />
+              ) : (
+                'U'
+              )}
             </div>
-            <div className="overflow-hidden">
-              <p className="text-sm font-medium text-white truncate">User Name</p>
-              <p className="text-xs text-green-400 truncate">Online</p>
+            <div className="overflow-hidden min-w-0">
+              <p className="text-sm font-medium text-white truncate leading-tight">{user?.displayName || 'Guest'}</p>
+              <p className="text-xs text-green-400 truncate mt-0.5">{user ? 'Online' : 'Not Loaded'}</p>
             </div>
+
+            <button
+              onClick={handleLogout}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-rose-400 hover:bg-white/5 rounded-lg transition-colors"
+              title="Log Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </aside>

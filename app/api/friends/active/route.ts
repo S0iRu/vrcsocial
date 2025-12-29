@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 const API_BASE = 'https://api.vrchat.cloud/api/1';
 
-const USER_AGENT = 'VRCSocial/1.0.0 dev_test_vrc@gmail.com';
+const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
 
 export async function GET(req: NextRequest) {

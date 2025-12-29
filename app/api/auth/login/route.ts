@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkRateLimit, rateLimitResponse, addRateLimitHeaders, resetRateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,17 +20,31 @@ export async function GET(req: NextRequest) {
         }
         return NextResponse.json({ status: 'error', code: res.status }, { status: 502 });
     } catch (e: any) {
-        return NextResponse.json({ status: 'error', message: e.message }, { status: 500 });
+        return NextResponse.json({ status: 'error', message: 'Service unavailable' }, { status: 500 });
     }
 }
 
 export async function POST(req: NextRequest) {
+    // Rate limiting check - 5 attempts per 15 minutes
+    const rateCheck = checkRateLimit(req, 'login');
+    if (rateCheck.limited) {
+        return rateLimitResponse(rateCheck.resetIn);
+    }
+
     try {
-        const { username, password } = await req.json();
+        const body = await req.json();
+        const { username, password } = body;
+
+        // Input validation
+        if (!username || typeof username !== 'string' || username.length > 100) {
+            return NextResponse.json({ error: 'Invalid username' }, { status: 400 });
+        }
+        if (!password || typeof password !== 'string' || password.length > 200) {
+            return NextResponse.json({ error: 'Invalid password' }, { status: 400 });
+        }
+
         const credentials = Buffer.from(`${username}:${password}`).toString('base64');
         const authHeader = `Basic ${credentials}`;
-
-        console.log(`[Login] Attempting login for ${username}`);
 
         const res = await fetch(`${API_BASE}/auth/user`, {
             method: 'GET',
@@ -97,9 +112,8 @@ export async function POST(req: NextRequest) {
                     twoFactorAuthType: userData.requiresTwoFactorAuth
                 }, { status: 401 }); // Force 401 so frontend switches to 2FA view
             } else {
-                // Real success
-                // Return credentials to client for manual storage
-                response = NextResponse.json({ user: userData, credentials });
+                // Real success - Do NOT send credentials to client for security
+                response = NextResponse.json({ user: userData, success: true });
             }
         }
 
@@ -131,26 +145,29 @@ export async function POST(req: NextRequest) {
                         value: value.trim(),
                         httpOnly: true,
                         path: '/',
-                        secure: false, // Ensure this is false for localhost debugging
-                        sameSite: 'lax',
-                        // maxAge: 60 * 60 * 24 * 7 // Optional: force keep-alive
+                        secure: process.env.NODE_ENV === 'production',
+                        sameSite: 'strict',
+                        maxAge: 60 * 60 * 24 * 7 // 7 days
                     });
                 }
             }
         });
 
         // Also save credentials as a backup (useful if 'auth' cookie expires or is lost)
+        // Store credentials securely in httpOnly cookie (not sent to client JS)
         response.cookies.set('vrc_creds', credentials, {
             httpOnly: true,
-            secure: false,
+            secure: process.env.NODE_ENV === 'production',
             path: '/',
-            sameSite: 'lax'
+            sameSite: 'strict',
+            maxAge: 60 * 60 * 24 * 7 // 7 days
         });
 
         return response;
 
     } catch (e: any) {
         console.error('[Login] Exception:', e);
-        return NextResponse.json({ error: 'Internal Server Error', details: e.message }, { status: 500 });
+        // Don't expose internal error details to client
+        return NextResponse.json({ error: 'An error occurred during login' }, { status: 500 });
     }
 }

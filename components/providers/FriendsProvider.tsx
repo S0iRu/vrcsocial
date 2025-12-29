@@ -97,13 +97,11 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
         try {
             if (typeof window === 'undefined') return;
-            const localCreds = localStorage.getItem('vrc_creds');
-            const headers: Record<string, string> = {};
-            if (localCreds) {
-                headers['Authorization'] = `Basic ${localCreds}`;
-            }
-
-            const res = await fetch('/api/friends/active', { headers });
+            // Authentication is handled via httpOnly cookies automatically
+            // No need to manually send credentials from localStorage
+            const res = await fetch('/api/friends/active', {
+                credentials: 'include' // Ensure cookies are sent
+            });
 
             if (res.ok) {
                 const data = await res.json();

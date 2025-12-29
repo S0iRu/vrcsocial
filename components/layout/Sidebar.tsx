@@ -10,12 +10,11 @@ const Sidebar = () => {
   useEffect(() => {
     const fetchUser = async () => {
       if (typeof window === 'undefined') return;
-      const creds = localStorage.getItem('vrc_creds');
-      if (!creds) return;
 
       try {
+        // Authentication handled via httpOnly cookies
         const res = await fetch('/api/user', {
-          headers: { 'Authorization': `Basic ${creds}` }
+          credentials: 'include'
         });
         if (res.ok) {
           const data = await res.json();
@@ -29,13 +28,15 @@ const Sidebar = () => {
   }, []);
 
   const handleLogout = async () => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('vrc_creds');
-      // localStorage.removeItem('vrc_logs');
-    }
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch (e) { }
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch (e) {
+      console.error('Logout error:', e);
+    }
+    // Clear any remaining localStorage data
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('vrc_logs');
+    }
     window.location.href = '/login';
   };
 

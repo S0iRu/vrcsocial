@@ -31,12 +31,8 @@ export default function LoginPage() {
             console.log('[Login Debug] Status:', res.status, 'Data:', data);
 
             if (res.ok) {
-                // Save credentials for token-based auth fallback
-                if (data.credentials) {
-                    localStorage.setItem('vrc_creds', data.credentials);
-                }
-
-                // Check if user is actually logged in or requires 2FA in a weird way
+                // Authentication is now handled via httpOnly cookies only
+                // No credentials stored in localStorage for security
 
                 if (data.requiresTwoFactorAuth) {
                     setStep('2fa');

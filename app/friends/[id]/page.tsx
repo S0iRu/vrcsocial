@@ -1,10 +1,12 @@
 import { MapPin, Users, Shield, Globe, MoreHorizontal, MessageSquare, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
-export default function FriendDetailsPage({ params }: { params: { id: string } }) {
+export default async function FriendDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params;
+    
     // Mock Data: 実際にはIDに基づいてデータを取得します
     const friend = {
-        id: params.id,
+        id: id,
         name: "Alice",
         status: "online",
         statusMessage: "Exploring new worlds!",

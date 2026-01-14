@@ -19,7 +19,8 @@ type InstanceGroup = {
     worldName: string;
     instanceType: string;
     region: string;
-    userCount: number;
+    userCount: number;           // Number of favorite friends in this instance
+    instanceUserCount?: number;  // Total number of users in this instance
     friends: Friend[];
     creatorId?: string;
     creatorName?: string;
@@ -243,6 +244,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                                 instanceType: f.instanceType || info?.type || (f.isPrivate ? "Invite" : "Public"),
                                 region: info?.region || "US",
                                 userCount: 0,
+                                instanceUserCount: f.instanceUserCount || undefined,
                                 friends: [],
                                 creatorId: info?.creatorId || undefined,
                                 creatorName: ownerName,

@@ -224,6 +224,40 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        // Collect unique instance locations (for fetching instance user counts)
+        const instanceLocations = new Set<string>();
+        activeFavoriteFriends.forEach((f: any) => {
+            if (f.location && f.location.startsWith('wrld_') && !f.location.includes('private')) {
+                instanceLocations.add(f.location);
+            }
+        });
+
+        // Fetch instance details to get total user count
+        const instanceMap = new Map<string, any>();
+        const instanceList = Array.from(instanceLocations);
+        
+        console.log(`[FriendsAPI] Fetching info for ${instanceList.length} unique instances`);
+
+        for (let i = 0; i < instanceList.length; i += BATCH_SIZE) {
+            const batch = instanceList.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (loc) => {
+                try {
+                    // Instance API format: /instances/{worldId}:{instanceId}
+                    const instRes = await fetch(`${API_BASE}/instances/${loc}`, { headers });
+                    if (instRes.ok) {
+                        const instData = await instRes.json();
+                        instanceMap.set(loc, instData);
+                    }
+                } catch (e) {
+                    console.error(`Failed to fetch instance ${loc}`);
+                }
+            }));
+
+            if (i + BATCH_SIZE < instanceList.length) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+        }
+
 
         // Transform
         const simplifiedFriends = activeFavoriteFriends.map((f: any) => {
@@ -267,6 +301,10 @@ export async function GET(req: NextRequest) {
                 worldName = 'Offline';
             }
 
+            // Get instance user count
+            const instData = instanceMap.get(f.location);
+            const instanceUserCount = instData?.n_users || instData?.userCount || null;
+
             return {
                 id: f.id,
                 name: f.displayName,
@@ -283,6 +321,7 @@ export async function GET(req: NextRequest) {
                 ownerName,
                 groupId: instanceInfo.groupId,
                 groupName,
+                instanceUserCount,
             };
         });
 

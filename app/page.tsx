@@ -23,7 +23,8 @@ type InstanceGroup = {
     worldName: string;
     instanceType: string;
     region: string;
-    userCount: number;
+    userCount: number;           // Number of favorite friends in this instance
+    instanceUserCount?: number;  // Total number of users in this instance
     friends: Friend[];
     creatorId?: string;
     creatorName?: string;
@@ -156,9 +157,12 @@ export default function FavoritesPage() {
                                             </div>
                                         </div>
                                     </div>
-                                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg text-xs md:text-sm font-medium text-white shrink-0">
+                                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg text-xs md:text-sm font-medium text-white shrink-0" title={`${group.userCount} favorites / ${group.instanceUserCount || '?'} total`}>
                                         <Users className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400" />
-                                        {group.userCount}
+                                        {group.instanceUserCount || group.userCount}
+                                        {group.instanceUserCount && group.instanceUserCount !== group.userCount && (
+                                            <span className="text-slate-400 text-[10px] md:text-xs">({group.userCount}★)</span>
+                                        )}
                                     </span>
                                 </div>
                             </div>

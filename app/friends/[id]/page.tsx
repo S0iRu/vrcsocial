@@ -1,6 +1,6 @@
 'use client';
 
-import { MapPin, Users, Globe, ArrowLeft, Loader2, UserX } from "lucide-react";
+import { MapPin, Users, Globe, ArrowLeft, Loader2, UserX, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -15,6 +15,7 @@ type FriendData = {
     icon: string;
     profilePicOverride: string;
     bio: string;
+    bioLinks: string[];
     trust: string;
     location: string;
     world: {
@@ -198,11 +199,130 @@ export default function FriendDetailsPage() {
                 </div>
             </div>
 
+            {/* Links */}
+            <div className="glass-card p-4 rounded-2xl">
+                <div className="flex flex-wrap gap-2">
+                    <a
+                        href={`https://vrchat.com/home/user/${friend.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-sm font-medium transition-colors border border-indigo-500/30"
+                    >
+                        <ExternalLink className="w-4 h-4" />
+                        VRChat Profile
+                    </a>
+                    {isInWorld && friend.world && (
+                        <a
+                            href={`https://vrchat.com/home/world/${friend.world.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 hover:text-cyan-200 text-sm font-medium transition-colors border border-cyan-500/30"
+                        >
+                            <Globe className="w-4 h-4" />
+                            World Page
+                        </a>
+                    )}
+                    {isInWorld && friend.location && (
+                        <a
+                            href={`https://vrchat.com/home/launch?worldId=${friend.location.split(':')[0]}&instanceId=${friend.location.split(':')[1]}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-300 hover:text-green-200 text-sm font-medium transition-colors border border-green-500/30"
+                        >
+                            <MapPin className="w-4 h-4" />
+                            Join Instance
+                        </a>
+                    )}
+                </div>
+            </div>
+
             {/* Bio */}
             {friend.bio && (
                 <div className="glass-card p-6 rounded-2xl">
                     <h3 className="text-lg font-bold text-white mb-3">Bio</h3>
                     <p className="text-slate-300 text-sm whitespace-pre-wrap">{friend.bio}</p>
+                </div>
+            )}
+
+            {/* Social Links */}
+            {friend.bioLinks && friend.bioLinks.length > 0 && (
+                <div className="glass-card p-6 rounded-2xl">
+                    <h3 className="text-lg font-bold text-white mb-3">Social Links</h3>
+                    <div className="flex flex-wrap gap-2">
+                        {friend.bioLinks.map((link, index) => {
+                            // Extract service name from URL
+                            let serviceName = 'Link';
+                            let bgColor = 'bg-slate-500/20 hover:bg-slate-500/30 text-slate-300 border-slate-500/30';
+                            
+                            try {
+                                const url = new URL(link);
+                                const host = url.hostname.toLowerCase();
+                                
+                                if (host.includes('twitter.com') || host.includes('x.com')) {
+                                    serviceName = 'Twitter / X';
+                                    bgColor = 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border-sky-500/30';
+                                } else if (host.includes('youtube.com') || host.includes('youtu.be')) {
+                                    serviceName = 'YouTube';
+                                    bgColor = 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border-red-500/30';
+                                } else if (host.includes('twitch.tv')) {
+                                    serviceName = 'Twitch';
+                                    bgColor = 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border-purple-500/30';
+                                } else if (host.includes('discord.gg') || host.includes('discord.com')) {
+                                    serviceName = 'Discord';
+                                    bgColor = 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30';
+                                } else if (host.includes('booth.pm')) {
+                                    serviceName = 'BOOTH';
+                                    bgColor = 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/30';
+                                } else if (host.includes('github.com')) {
+                                    serviceName = 'GitHub';
+                                    bgColor = 'bg-gray-500/20 hover:bg-gray-500/30 text-gray-300 border-gray-500/30';
+                                } else if (host.includes('pixiv.net')) {
+                                    serviceName = 'pixiv';
+                                    bgColor = 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30';
+                                } else if (host.includes('instagram.com')) {
+                                    serviceName = 'Instagram';
+                                    bgColor = 'bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border-pink-500/30';
+                                } else if (host.includes('tiktok.com')) {
+                                    serviceName = 'TikTok';
+                                    bgColor = 'bg-black/40 hover:bg-black/50 text-white border-white/20';
+                                } else if (host.includes('niconico') || host.includes('nicovideo.jp')) {
+                                    serviceName = 'niconico';
+                                    bgColor = 'bg-gray-600/20 hover:bg-gray-600/30 text-gray-300 border-gray-500/30';
+                                } else if (host.includes('fanbox.cc')) {
+                                    serviceName = 'FANBOX';
+                                    bgColor = 'bg-red-400/20 hover:bg-red-400/30 text-red-300 border-red-400/30';
+                                } else if (host.includes('patreon.com')) {
+                                    serviceName = 'Patreon';
+                                    bgColor = 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/30';
+                                } else if (host.includes('lit.link')) {
+                                    serviceName = 'lit.link';
+                                    bgColor = 'bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border-yellow-500/30';
+                                } else if (host.includes('linktr.ee')) {
+                                    serviceName = 'Linktree';
+                                    bgColor = 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30';
+                                } else {
+                                    // Use domain name as service name
+                                    serviceName = host.replace('www.', '').split('.')[0];
+                                    serviceName = serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
+                                }
+                            } catch {
+                                serviceName = 'Link';
+                            }
+                            
+                            return (
+                                <a
+                                    key={index}
+                                    href={link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${bgColor}`}
+                                >
+                                    <ExternalLink className="w-4 h-4" />
+                                    {serviceName}
+                                </a>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 

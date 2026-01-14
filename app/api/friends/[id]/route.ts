@@ -215,6 +215,7 @@ export async function GET(
             icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || '',
             profilePicOverride: user.profilePicOverride || '',
             bio: user.bio || '',
+            bioLinks: user.bioLinks || [],
             trust: getTrustRank(user.tags || []),
             location: user.location || 'offline',
             world: worldData ? {

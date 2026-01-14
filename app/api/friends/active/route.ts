@@ -331,7 +331,7 @@ export async function GET(req: NextRequest) {
                 name: f.displayName,
                 status: f.status,
                 statusMsg: f.statusDescription,
-                icon: f.userIcon || f.currentAvatarThumbnailImageUrl,
+                icon: f.userIcon || f.profilePicOverride || f.currentAvatarThumbnailImageUrl || f.currentAvatarImageUrl || '',
                 location: f.location,
                 worldName,
                 worldImageUrl,

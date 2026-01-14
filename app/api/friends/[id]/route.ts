@@ -212,7 +212,7 @@ export async function GET(
             status: displayStatus,
             state: user.state || 'offline',
             statusMessage: user.statusDescription || '',
-            icon: user.userIcon || user.currentAvatarThumbnailImageUrl || '',
+            icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || '',
             profilePicOverride: user.profilePicOverride || '',
             bio: user.bio || '',
             trust: getTrustRank(user.tags || []),

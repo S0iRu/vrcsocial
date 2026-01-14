@@ -275,6 +275,41 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        // Collect instance owner IDs that are not in friends list
+        const nonFriendOwnerIds = new Set<string>();
+        allActiveFriends.forEach((f: any) => {
+            const instanceInfo = parseLocation(f.location);
+            if (instanceInfo.ownerId && !allFriendsMap.has(instanceInfo.ownerId)) {
+                nonFriendOwnerIds.add(instanceInfo.ownerId);
+            }
+        });
+
+        // Fetch non-friend owner info
+        const ownerMap = new Map<string, string>(); // userId -> displayName
+        const ownerIdList = Array.from(nonFriendOwnerIds);
+        
+        if (ownerIdList.length > 0) {
+            console.log(`[FriendsAPI] Fetching info for ${ownerIdList.length} non-friend instance owners`);
+            
+            for (let i = 0; i < ownerIdList.length; i += BATCH_SIZE) {
+                const batch = ownerIdList.slice(i, i + BATCH_SIZE);
+                await Promise.all(batch.map(async (userId) => {
+                    try {
+                        const userRes = await fetch(`${API_BASE}/users/${userId}`, { headers });
+                        if (userRes.ok) {
+                            const userData = await userRes.json();
+                            ownerMap.set(userId, userData.displayName);
+                        }
+                    } catch (e) {
+                        console.error(`Failed to fetch user ${userId}`);
+                    }
+                }));
+
+                if (i + BATCH_SIZE < ownerIdList.length) {
+                    await new Promise(r => setTimeout(r, 100));
+                }
+            }
+        }
 
         // Transform all active friends
         const simplifiedFriends = allActiveFriends.map((f: any) => {
@@ -288,9 +323,9 @@ export async function GET(req: NextRequest) {
             let ownerName: string | null = null;
             let groupName: string | null = null;
             
-            // Get owner name from friends map
+            // Get owner name from friends map or non-friend owner map
             if (instanceInfo.ownerId) {
-                ownerName = allFriendsMap.get(instanceInfo.ownerId) || null;
+                ownerName = allFriendsMap.get(instanceInfo.ownerId) || ownerMap.get(instanceInfo.ownerId) || null;
             }
             
             // Get group name from group map

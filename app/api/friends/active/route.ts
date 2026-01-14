@@ -83,7 +83,9 @@ export async function GET(req: NextRequest) {
 
 
         // Fetch ALL Favorites to filter (pagination loop)
+        // Also store favorite group info for sorting
         const favoriteIds = new Set<string>();
+        const favoriteGroups = new Map<string, string>(); // userId -> group (e.g., "group_0")
         let offset = 0;
         let hasMore = true;
 
@@ -93,7 +95,13 @@ export async function GET(req: NextRequest) {
                 if (favRes.ok) {
                     const favs = await favRes.json();
                     if (Array.isArray(favs) && favs.length > 0) {
-                        favs.forEach((fav: any) => favoriteIds.add(fav.favoriteId));
+                        favs.forEach((fav: any) => {
+                            favoriteIds.add(fav.favoriteId);
+                            // Extract favorite group from tags (e.g., ["group_0"])
+                            if (fav.tags && Array.isArray(fav.tags) && fav.tags.length > 0) {
+                                favoriteGroups.set(fav.favoriteId, fav.tags[0]);
+                            }
+                        });
                         if (favs.length < 100) {
                             hasMore = false; // End of list
                         } else {
@@ -114,8 +122,17 @@ export async function GET(req: NextRequest) {
 
         console.log(`[FriendsAPI] Total favorites loaded: ${favoriteIds.size}. Filtering ${friends.length} online friends.`);
 
-        // Filter: Keep only favorite friends
+        // Split friends into favorites and non-favorites
+        // For non-favorites, only include those with visible locations (not private/offline)
         const activeFavoriteFriends = friends.filter((f: any) => favoriteIds.has(f.id));
+        const activeNonFavoriteFriends = friends.filter((f: any) => {
+            if (favoriteIds.has(f.id)) return false;  // Already in favorites
+            if (!f.location || f.location === 'offline' || f.location === 'private') return false;
+            return true;  // Has visible location
+        });
+        
+        // Combine all friends that need processing
+        const allActiveFriends = [...activeFavoriteFriends, ...activeNonFavoriteFriends];
 
         // Create a map of all friends for quick lookup (for instance owner names)
         const allFriendsMap = new Map<string, string>();
@@ -159,10 +176,10 @@ export async function GET(req: NextRequest) {
             return { instanceType, ownerId, groupId };
         };
 
-        // Extract unique world IDs and group IDs from filtered list
+        // Extract unique world IDs and group IDs from all active friends
         const worldIds = new Set<string>();
         const groupIds = new Set<string>();
-        activeFavoriteFriends.forEach((f: any) => {
+        allActiveFriends.forEach((f: any) => {
             if (typeof f.location === 'string' && f.location.startsWith('wrld_')) {
                 const wid = f.location.split(':')[0];
                 worldIds.add(wid);
@@ -226,7 +243,7 @@ export async function GET(req: NextRequest) {
 
         // Collect unique instance locations (for fetching instance user counts)
         const instanceLocations = new Set<string>();
-        activeFavoriteFriends.forEach((f: any) => {
+        allActiveFriends.forEach((f: any) => {
             if (f.location && f.location.startsWith('wrld_') && !f.location.includes('private')) {
                 instanceLocations.add(f.location);
             }
@@ -259,11 +276,12 @@ export async function GET(req: NextRequest) {
         }
 
 
-        // Transform
-        const simplifiedFriends = activeFavoriteFriends.map((f: any) => {
+        // Transform all active friends
+        const simplifiedFriends = allActiveFriends.map((f: any) => {
             let worldName = f.location;
             let worldImageUrl = null;
             let isPrivate = false;
+            const isFavorite = favoriteIds.has(f.id);
             
             // Parse instance info
             const instanceInfo = parseLocation(f.location);
@@ -305,6 +323,9 @@ export async function GET(req: NextRequest) {
             const instData = instanceMap.get(f.location);
             const instanceUserCount = instData?.n_users || instData?.userCount || null;
 
+            // Get favorite group for this friend
+            const favoriteGroup = favoriteGroups.get(f.id) || null;
+
             return {
                 id: f.id,
                 name: f.displayName,
@@ -315,7 +336,8 @@ export async function GET(req: NextRequest) {
                 worldName,
                 worldImageUrl,
                 isPrivate,
-                isFavorite: true,
+                isFavorite,
+                favoriteGroup,  // e.g., "group_0", "group_1", etc.
                 instanceType: instanceInfo.instanceType,
                 ownerId: instanceInfo.ownerId,
                 ownerName,

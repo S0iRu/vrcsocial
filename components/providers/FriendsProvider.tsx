@@ -11,6 +11,7 @@ type Friend = {
     status: string;
     location: string;
     worldName?: string;
+    favoriteGroup?: string;  // e.g., "group_0", "group_1", etc.
     [key: string]: any;
 };
 
@@ -21,7 +22,9 @@ type InstanceGroup = {
     region: string;
     userCount: number;           // Number of favorite friends in this instance
     instanceUserCount?: number;  // Total number of users in this instance
-    friends: Friend[];
+    friends: Friend[];           // Favorite friends
+    otherFriends: Friend[];      // Non-favorite friends with visible locations
+    minFavoriteGroup: number;    // Minimum favorite group number (for sorting)
     creatorId?: string;
     creatorName?: string;
     worldImageUrl?: string;
@@ -246,6 +249,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                                 userCount: 0,
                                 instanceUserCount: f.instanceUserCount || undefined,
                                 friends: [],
+                                otherFriends: [],
+                                minFavoriteGroup: 999,  // Will be updated with actual min
                                 creatorId: info?.creatorId || undefined,
                                 creatorName: ownerName,
                                 groupId: f.groupId || info?.groupId || undefined,
@@ -254,21 +259,45 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                                 ownerName: ownerName,
                             };
                         }
-                        grouped[loc].friends.push(f);
-                        grouped[loc].userCount++;
+                        // Separate favorite and non-favorite friends
+                        if (f.isFavorite) {
+                            grouped[loc].friends.push(f);
+                            grouped[loc].userCount++;
+                            // Track minimum favorite group number (e.g., "group_0" -> 0)
+                            if (f.favoriteGroup) {
+                                const groupNum = parseInt(f.favoriteGroup.replace('group_', ''), 10);
+                                if (!isNaN(groupNum) && groupNum < grouped[loc].minFavoriteGroup) {
+                                    grouped[loc].minFavoriteGroup = groupNum;
+                                }
+                            }
+                        } else {
+                            grouped[loc].otherFriends.push(f);
+                        }
                     });
                 }
 
-                // Sort: User Count Descending, but 'private' (hidden) at bottom
-                const sortedInstances = Object.values(grouped).sort((a, b) => {
-                    const aIsHidden = a.id === 'private' || a.worldName === 'Private World';
-                    const bIsHidden = b.id === 'private' || b.worldName === 'Private World';
+                // Filter: Only show instances with at least one favorite friend
+                // Sort: By favorite group (ascending), then by favorite count (descending)
+                // Private instances at bottom
+                const sortedInstances = Object.values(grouped)
+                    .filter(inst => inst.userCount > 0)  // Only instances with favorites
+                    .sort((a, b) => {
+                        const aIsHidden = a.id === 'private' || a.worldName === 'Private World';
+                        const bIsHidden = b.id === 'private' || b.worldName === 'Private World';
 
-                    if (aIsHidden && !bIsHidden) return 1;
-                    if (!aIsHidden && bIsHidden) return -1;
+                        // Private instances at bottom
+                        if (aIsHidden && !bIsHidden) return 1;
+                        if (!aIsHidden && bIsHidden) return -1;
 
-                    return b.userCount - a.userCount;
-                });
+                        // Sort by minimum favorite group number (ascending)
+                        // group_0 comes before group_1, etc.
+                        if (a.minFavoriteGroup !== b.minFavoriteGroup) {
+                            return a.minFavoriteGroup - b.minFavoriteGroup;
+                        }
+
+                        // Then sort by favorite count (descending)
+                        return b.userCount - a.userCount;
+                    });
 
                 setInstances(sortedInstances);
                 setLastUpdated(new Date());

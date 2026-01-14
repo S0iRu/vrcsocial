@@ -25,7 +25,8 @@ type InstanceGroup = {
     region: string;
     userCount: number;           // Number of favorite friends in this instance
     instanceUserCount?: number;  // Total number of users in this instance
-    friends: Friend[];
+    friends: Friend[];           // Favorite friends
+    otherFriends: Friend[];      // Non-favorite friends with visible locations
     creatorId?: string;
     creatorName?: string;
     worldImageUrl?: string;
@@ -169,36 +170,83 @@ export default function FavoritesPage() {
 
                             {/* Friends List */}
                             <div className="p-2">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
-                                    {group.friends.map((friend) => (
-                                        <Link
-                                            key={friend.id}
-                                            href={`/friends/${friend.id}`}
-                                            className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group/friend"
-                                        >
-                                            <div className="relative">
-                                                <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-transparent group-hover/friend:ring-indigo-500/50 transition-all">
-                                                    {friend.icon ? (
-                                                        <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
+                                {/* Favorite Friends */}
+                                {group.friends.length > 0 && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
+                                        {group.friends.map((friend) => (
+                                            <Link
+                                                key={friend.id}
+                                                href={`/friends/${friend.id}`}
+                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group/friend"
+                                            >
+                                                <div className="relative">
+                                                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-yellow-500/30 group-hover/friend:ring-indigo-500/50 transition-all">
+                                                        {friend.icon ? (
+                                                            <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
+                                                        )}
+                                                    </div>
+                                                    <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs md:text-sm font-medium text-slate-200 group-hover/friend:text-white truncate flex items-center gap-1">
+                                                        {friend.name}
+                                                        <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />
+                                                    </p>
+                                                    {friend.statusMsg && (
+                                                        <p className="text-[10px] md:text-xs text-slate-500 truncate mt-0.5">
+                                                            {friend.statusMsg}
+                                                        </p>
                                                     )}
                                                 </div>
-                                                <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-xs md:text-sm font-medium text-slate-200 group-hover/friend:text-white truncate">
-                                                    {friend.name}
-                                                </p>
-                                                {friend.statusMsg && (
-                                                    <p className="text-[10px] md:text-xs text-slate-500 truncate mt-0.5">
-                                                        {friend.statusMsg}
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Separator between favorites and others */}
+                                {group.friends.length > 0 && group.otherFriends && group.otherFriends.length > 0 && (
+                                    <div className="flex items-center gap-2 my-2 px-2">
+                                        <div className="flex-1 h-px bg-white/10"></div>
+                                        <span className="text-[10px] text-slate-500">Other Friends</span>
+                                        <div className="flex-1 h-px bg-white/10"></div>
+                                    </div>
+                                )}
+
+                                {/* Non-Favorite Friends */}
+                                {group.otherFriends && group.otherFriends.length > 0 && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
+                                        {group.otherFriends.map((friend) => (
+                                            <Link
+                                                key={friend.id}
+                                                href={`/friends/${friend.id}`}
+                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group/friend opacity-70 hover:opacity-100"
+                                            >
+                                                <div className="relative">
+                                                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-transparent group-hover/friend:ring-slate-500/50 transition-all">
+                                                        {friend.icon ? (
+                                                            <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
+                                                        )}
+                                                    </div>
+                                                    <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs md:text-sm font-medium text-slate-400 group-hover/friend:text-slate-200 truncate">
+                                                        {friend.name}
                                                     </p>
-                                                )}
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
+                                                    {friend.statusMsg && (
+                                                        <p className="text-[10px] md:text-xs text-slate-600 truncate mt-0.5">
+                                                            {friend.statusMsg}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}

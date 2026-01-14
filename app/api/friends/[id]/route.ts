@@ -32,37 +32,79 @@ async function getAuthHeaders(): Promise<Record<string, string> | null> {
 }
 
 // Parse instance info from location string
+// VRChat instance types:
+// - Public: wrld_xxx:instanceId
+// - Friends+: wrld_xxx:instanceId~hidden(usr_xxx)
+// - Friends: wrld_xxx:instanceId~friends(usr_xxx)
+// - Invite+: wrld_xxx:instanceId~private(usr_xxx)~canRequestInvite
+// - Invite: wrld_xxx:instanceId~private(usr_xxx)
+// - Group Public: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(public)
+// - Group: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(members)
+// - Group+: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(plus)
 function parseInstanceInfo(location: string) {
     if (!location || location === 'offline' || location === 'private') {
-        return { instanceType: 'Private', region: 'Unknown', instanceId: '' };
+        return { instanceType: 'Private', region: 'Unknown', instanceId: '', ownerId: null, groupId: null };
     }
 
     const parts = location.split(':');
     if (parts.length < 2) {
-        return { instanceType: 'Public', region: 'US', instanceId: '' };
+        return { instanceType: 'Public', region: 'US', instanceId: '', ownerId: null, groupId: null };
     }
 
     const raw = parts[1];
     const instanceId = raw.split('~')[0];
 
     let instanceType = 'Public';
-    if (raw.includes('private')) {
-        instanceType = 'Invite';
-    } else if (raw.includes('friends')) {
+    let ownerId: string | null = null;
+    let groupId: string | null = null;
+    
+    // Extract owner user ID
+    const usrMatch = raw.match(/\((usr_[^)]+)\)/);
+    if (usrMatch) {
+        ownerId = usrMatch[1];
+    }
+    
+    // Extract group ID
+    const grpMatch = raw.match(/~group\((grp_[^)]+)\)/);
+    if (grpMatch) {
+        groupId = grpMatch[1];
+    }
+    
+    // Check for group instances first (they may also contain other keywords)
+    if (raw.includes('~group(')) {
+        if (raw.includes('groupAccessType(public)')) {
+            instanceType = 'Group Public';
+        } else if (raw.includes('groupAccessType(plus)')) {
+            instanceType = 'Group+';
+        } else if (raw.includes('groupAccessType(members)')) {
+            instanceType = 'Group';
+        } else {
+            instanceType = 'Group';
+        }
+    } else if (raw.includes('~private(')) {
+        if (raw.includes('~canRequestInvite')) {
+            instanceType = 'Invite+';
+        } else {
+            instanceType = 'Invite';
+        }
+    } else if (raw.includes('~friends(')) {
         instanceType = 'Friends';
-    } else if (raw.includes('hidden')) {
+    } else if (raw.includes('~hidden(')) {
         instanceType = 'Friends+';
-    } else if (raw.includes('group')) {
-        instanceType = 'Group';
     }
 
     let region = 'US';
-    if (raw.includes('region(jp)')) region = 'JP';
-    else if (raw.includes('region(eu)')) region = 'EU';
-    else if (raw.includes('region(use)')) region = 'US East';
-    else if (raw.includes('region(usw)')) region = 'US West';
+    const regionMatch = raw.match(/~region\(([^)]+)\)/);
+    if (regionMatch) {
+        const r = regionMatch[1].toLowerCase();
+        if (r === 'jp') region = 'JP';
+        else if (r === 'eu') region = 'EU';
+        else if (r === 'use') region = 'US East';
+        else if (r === 'usw') region = 'US West';
+        else if (r === 'us') region = 'US';
+    }
 
-    return { instanceType, region, instanceId };
+    return { instanceType, region, instanceId, ownerId, groupId };
 }
 
 // Get trust rank display name
@@ -107,6 +149,9 @@ export async function GET(
 
         const user = await userRes.json();
 
+        // Parse instance info first to get IDs
+        const instanceInfo = parseInstanceInfo(user.location || '');
+
         // Fetch world info if user is in a world
         let worldData = null;
         if (user.location && user.location.startsWith('wrld_')) {
@@ -121,14 +166,51 @@ export async function GET(
             }
         }
 
-        // Parse instance info
-        const instanceInfo = parseInstanceInfo(user.location || '');
+        // Fetch group info if it's a group instance
+        let groupData = null;
+        if (instanceInfo.groupId) {
+            try {
+                const groupRes = await fetch(`${API_BASE}/groups/${instanceInfo.groupId}`, { headers });
+                if (groupRes.ok) {
+                    groupData = await groupRes.json();
+                }
+            } catch (e) {
+                console.error(`[FriendAPI] Failed to fetch group ${instanceInfo.groupId}`);
+            }
+        }
+
+        // Fetch instance owner info if available
+        let ownerData = null;
+        if (instanceInfo.ownerId) {
+            try {
+                const ownerRes = await fetch(`${API_BASE}/users/${instanceInfo.ownerId}`, { headers });
+                if (ownerRes.ok) {
+                    ownerData = await ownerRes.json();
+                }
+            } catch (e) {
+                console.error(`[FriendAPI] Failed to fetch owner ${instanceInfo.ownerId}`);
+            }
+        }
 
         // Build response
+        // VRChat API returns:
+        // - state: actual online state ("online", "active", "offline")
+        // - status: user-set status ("active", "join me", "ask me", "busy")
+        // For the status indicator, we need to check both
+        let displayStatus = 'offline';
+        if (user.state === 'online' || user.state === 'active') {
+            // User is online, use their set status
+            displayStatus = user.status || 'active';
+        } else if (user.location && user.location !== 'offline') {
+            // User has a location, they're likely online
+            displayStatus = user.status || 'active';
+        }
+
         const friendData = {
             id: user.id,
             name: user.displayName,
-            status: user.status || 'offline',
+            status: displayStatus,
+            state: user.state || 'offline',
             statusMessage: user.statusDescription || '',
             icon: user.userIcon || user.currentAvatarThumbnailImageUrl || '',
             profilePicOverride: user.profilePicOverride || '',
@@ -148,7 +230,11 @@ export async function GET(
             instance: {
                 type: instanceInfo.instanceType,
                 region: instanceInfo.region,
-                id: instanceInfo.instanceId
+                id: instanceInfo.instanceId,
+                ownerId: instanceInfo.ownerId,
+                ownerName: ownerData?.displayName || null,
+                groupId: instanceInfo.groupId,
+                groupName: groupData?.name || null,
             },
             lastLogin: user.last_login,
             dateJoined: user.date_joined,

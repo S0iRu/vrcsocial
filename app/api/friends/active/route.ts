@@ -117,14 +117,59 @@ export async function GET(req: NextRequest) {
         // Filter: Keep only favorite friends
         const activeFavoriteFriends = friends.filter((f: any) => favoriteIds.has(f.id));
 
+        // Create a map of all friends for quick lookup (for instance owner names)
+        const allFriendsMap = new Map<string, string>();
+        friends.forEach((f: any) => allFriendsMap.set(f.id, f.displayName));
 
-        // Transform
-        // Extract unique world IDs from filtered list
+        // Helper function to parse instance info
+        const parseLocation = (location: string) => {
+            if (!location || location === 'offline' || location === 'private') {
+                return { instanceType: 'Private', ownerId: null, groupId: null };
+            }
+            const parts = location.split(':');
+            if (parts.length < 2) return { instanceType: 'Public', ownerId: null, groupId: null };
+            
+            const raw = parts[1];
+            let instanceType = 'Public';
+            let ownerId: string | null = null;
+            let groupId: string | null = null;
+            
+            // Extract owner ID
+            const usrMatch = raw.match(/\((usr_[^)]+)\)/);
+            if (usrMatch) ownerId = usrMatch[1];
+            
+            // Extract group ID
+            const grpMatch = raw.match(/~group\((grp_[^)]+)\)/);
+            if (grpMatch) groupId = grpMatch[1];
+            
+            // Determine instance type
+            if (raw.includes('~group(')) {
+                if (raw.includes('groupAccessType(public)')) instanceType = 'Group Public';
+                else if (raw.includes('groupAccessType(plus)')) instanceType = 'Group+';
+                else if (raw.includes('groupAccessType(members)')) instanceType = 'Group';
+                else instanceType = 'Group';
+            } else if (raw.includes('~private(')) {
+                instanceType = raw.includes('~canRequestInvite') ? 'Invite+' : 'Invite';
+            } else if (raw.includes('~friends(')) {
+                instanceType = 'Friends';
+            } else if (raw.includes('~hidden(')) {
+                instanceType = 'Friends+';
+            }
+            
+            return { instanceType, ownerId, groupId };
+        };
+
+        // Extract unique world IDs and group IDs from filtered list
         const worldIds = new Set<string>();
+        const groupIds = new Set<string>();
         activeFavoriteFriends.forEach((f: any) => {
             if (typeof f.location === 'string' && f.location.startsWith('wrld_')) {
                 const wid = f.location.split(':')[0];
                 worldIds.add(wid);
+                
+                // Extract group ID if present
+                const grpMatch = f.location.match(/~group\((grp_[^)]+)\)/);
+                if (grpMatch) groupIds.add(grpMatch[1]);
             }
         });
 
@@ -139,21 +184,43 @@ export async function GET(req: NextRequest) {
             const batch = worldIdList.slice(i, i + BATCH_SIZE);
             await Promise.all(batch.map(async (wid) => {
                 try {
-                    // Fetch individual world
                     const wRes = await fetch(`${API_BASE}/worlds/${wid}`, { headers });
                     if (wRes.ok) {
                         const wData = await wRes.json();
                         worldMap.set(wid, wData);
                     }
                 } catch (e) {
-                    // Ignore errors for individual worlds
                     console.error(`Failed to fetch world ${wid}`);
                 }
             }));
 
-            // Short delay to be polite to the API
             if (i + BATCH_SIZE < worldIdList.length) {
-                await new Promise(r => setTimeout(r, 100)); // 100ms delay
+                await new Promise(r => setTimeout(r, 100));
+            }
+        }
+
+        // Fetch group details
+        const groupMap = new Map<string, any>();
+        const groupIdList = Array.from(groupIds);
+        
+        console.log(`[FriendsAPI] Fetching info for ${groupIdList.length} unique groups`);
+
+        for (let i = 0; i < groupIdList.length; i += BATCH_SIZE) {
+            const batch = groupIdList.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (gid) => {
+                try {
+                    const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
+                    if (gRes.ok) {
+                        const gData = await gRes.json();
+                        groupMap.set(gid, gData);
+                    }
+                } catch (e) {
+                    console.error(`Failed to fetch group ${gid}`);
+                }
+            }));
+
+            if (i + BATCH_SIZE < groupIdList.length) {
+                await new Promise(r => setTimeout(r, 100));
             }
         }
 
@@ -163,6 +230,22 @@ export async function GET(req: NextRequest) {
             let worldName = f.location;
             let worldImageUrl = null;
             let isPrivate = false;
+            
+            // Parse instance info
+            const instanceInfo = parseLocation(f.location);
+            let ownerName: string | null = null;
+            let groupName: string | null = null;
+            
+            // Get owner name from friends map
+            if (instanceInfo.ownerId) {
+                ownerName = allFriendsMap.get(instanceInfo.ownerId) || null;
+            }
+            
+            // Get group name from group map
+            if (instanceInfo.groupId) {
+                const gData = groupMap.get(instanceInfo.groupId);
+                if (gData) groupName = gData.name;
+            }
 
             if (f.location === 'private') {
                 isPrivate = true;
@@ -194,7 +277,12 @@ export async function GET(req: NextRequest) {
                 worldName,
                 worldImageUrl,
                 isPrivate,
-                isFavorite: true
+                isFavorite: true,
+                instanceType: instanceInfo.instanceType,
+                ownerId: instanceInfo.ownerId,
+                ownerName,
+                groupId: instanceInfo.groupId,
+                groupName,
             };
         });
 

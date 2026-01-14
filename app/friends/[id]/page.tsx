@@ -9,7 +9,8 @@ import { useFriends } from "@/components/providers/FriendsProvider";
 type FriendData = {
     id: string;
     name: string;
-    status: string;
+    status: string;  // User-set status: active, join me, ask me, busy
+    state: string;   // Online state: online, active, offline
     statusMessage: string;
     icon: string;
     profilePicOverride: string;
@@ -30,6 +31,10 @@ type FriendData = {
         type: string;
         region: string;
         id: string;
+        ownerId: string | null;
+        ownerName: string | null;
+        groupId: string | null;
+        groupName: string | null;
     };
     lastLogin: string;
     dateJoined: string;
@@ -88,15 +93,14 @@ export default function FriendDetailsPage() {
         }
     }, [id]);
 
-    // Get status color
+    // Get status color (VRChat status values)
     const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'active': return 'bg-green-500';
-            case 'join me': return 'bg-blue-500';
-            case 'ask me': return 'bg-orange-500';
-            case 'busy': return 'bg-red-500';
-            default: return 'bg-slate-500';
-        }
+        const s = (status || '').toLowerCase();
+        if (s === 'join me') return 'bg-blue-500';
+        if (s === 'ask me') return 'bg-orange-500';
+        if (s === 'busy' || s === 'do not disturb') return 'bg-red-500';
+        if (s === 'active' || s === 'online') return 'bg-green-500';
+        return 'bg-slate-500'; // offline or unknown
     };
 
     // Get trust color (VRChat Trust System)
@@ -247,6 +251,22 @@ export default function FriendDetailsPage() {
                                             <Globe className="w-4 h-4 text-slate-400" /> {friend.instance.region}
                                         </p>
                                     </div>
+                                    {/* Show group name for group instances, or owner for other instances */}
+                                    {friend.instance.groupName ? (
+                                        <div className="p-3 rounded-xl bg-white/5 border border-white/5 col-span-2">
+                                            <p className="text-xs text-slate-400 uppercase">Group</p>
+                                            <p className="text-white font-medium mt-1">
+                                                {friend.instance.groupName}
+                                            </p>
+                                        </div>
+                                    ) : friend.instance.ownerName ? (
+                                        <div className="p-3 rounded-xl bg-white/5 border border-white/5 col-span-2">
+                                            <p className="text-xs text-slate-400 uppercase">Instance Owner</p>
+                                            <p className="text-white font-medium mt-1">
+                                                {friend.instance.ownerName}
+                                            </p>
+                                        </div>
+                                    ) : null}
                                 </div>
                             </>
                         ) : (

@@ -28,6 +28,20 @@ type InstanceGroup = {
     creatorId?: string;
     creatorName?: string;
     worldImageUrl?: string;
+    groupId?: string;
+    groupName?: string;
+    ownerId?: string;
+    ownerName?: string;
+};
+
+// Get status color (VRChat status values)
+const getStatusColor = (status: string) => {
+    const s = (status || '').toLowerCase();
+    if (s === 'join me') return 'bg-blue-500';
+    if (s === 'ask me') return 'bg-orange-500';
+    if (s === 'busy' || s === 'do not disturb') return 'bg-red-500';
+    if (s === 'active' || s === 'online') return 'bg-green-500';
+    return 'bg-slate-500'; // offline or unknown
 };
 
 export default function FavoritesPage() {
@@ -114,20 +128,26 @@ export default function FavoritesPage() {
                                                 {group.worldName}
                                             </h3>
                                             <div className="flex flex-wrap items-center gap-2 mt-1">
-                                                <span className={`text-[10px] md:text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 border border-white/10 ${group.instanceType === 'private' ? 'text-rose-400 border-rose-500/30' :
+                                                <span className={`text-[10px] md:text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 border border-white/10 ${
+                                                    group.instanceType === 'Invite' || group.instanceType === 'Invite+' ? 'text-rose-400 border-rose-500/30' :
                                                     group.instanceType === 'Friends+' || group.instanceType === 'Friends' ? 'text-orange-400 border-orange-500/30' :
-                                                        'text-green-400 border-green-500/30'
-                                                    }`}>
+                                                    group.instanceType.startsWith('Group') ? 'text-cyan-400 border-cyan-500/30' :
+                                                    'text-green-400 border-green-500/30'
+                                                }`}>
                                                     {group.instanceType}
                                                 </span>
                                                 <span className="text-[10px] md:text-xs text-slate-500 font-mono">
                                                     {group.region}
                                                 </span>
-                                                {group.creatorName && (
-                                                    <span className="text-[10px] md:text-xs text-indigo-300 bg-indigo-500/10 px-1.5 rounded flex items-center gap-1">
-                                                        <User className="w-3 h-3" /> Host: {group.creatorName}
+                                                {group.groupName ? (
+                                                    <span className="text-[10px] md:text-xs text-cyan-300 bg-cyan-500/10 px-1.5 rounded flex items-center gap-1">
+                                                        Group: {group.groupName}
                                                     </span>
-                                                )}
+                                                ) : group.ownerName ? (
+                                                    <span className="text-[10px] md:text-xs text-indigo-300 bg-indigo-500/10 px-1.5 rounded flex items-center gap-1">
+                                                        <User className="w-3 h-3" /> Host: {group.ownerName}
+                                                    </span>
+                                                ) : null}
                                                 {!group.worldName.includes("Private") && group.id !== 'private' && (
                                                     <span className="text-[10px] md:text-xs text-slate-600 font-mono truncate max-w-[100px]">
                                                         #{group.id.split(':')[1]?.split('~')[0]}
@@ -160,7 +180,7 @@ export default function FavoritesPage() {
                                                         <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
                                                     )}
                                                 </div>
-                                                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 bg-green-500 border-2 border-[#1a1f2e] rounded-full"></div>
+                                                <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="text-xs md:text-sm font-medium text-slate-200 group-hover/friend:text-white truncate">

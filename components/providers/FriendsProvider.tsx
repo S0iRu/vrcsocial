@@ -24,6 +24,10 @@ type InstanceGroup = {
     creatorId?: string;
     creatorName?: string;
     worldImageUrl?: string;
+    groupId?: string;
+    groupName?: string;
+    ownerId?: string;
+    ownerName?: string;
 };
 
 interface FriendsContextType {
@@ -44,35 +48,75 @@ const FriendsContext = createContext<FriendsContextType>({
     refresh: () => { },
 });
 
+// Parse instance info from location string
+// VRChat instance types:
+// - Public: wrld_xxx:instanceId
+// - Friends+: wrld_xxx:instanceId~hidden(usr_xxx)
+// - Friends: wrld_xxx:instanceId~friends(usr_xxx)
+// - Invite+: wrld_xxx:instanceId~private(usr_xxx)~canRequestInvite
+// - Invite: wrld_xxx:instanceId~private(usr_xxx)
+// - Group Public: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(public)
+// - Group: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(members)
+// - Group+: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(plus)
 const parseInstanceInfo = (location: string) => {
     if (!location || location === 'offline' || location === 'private') return null;
     const parts = location.split(':');
-    if (parts.length < 2) return { name: '', type: 'Public', region: 'US', creatorId: null };
+    if (parts.length < 2) return { name: '', type: 'Public', region: 'US', creatorId: null, groupId: null };
 
     const raw = parts[1];
     const name = raw.split('~')[0];
 
     let type = 'Public';
-    let creatorId = null;
+    let creatorId: string | null = null;
+    let groupId: string | null = null;
 
+    // Extract user ID (instance creator)
     const usrMatch = raw.match(/\((usr_[^)]+)\)/);
     if (usrMatch) {
         creatorId = usrMatch[1];
     }
 
-    if (raw.includes('private')) {
-        type = 'Invite';
-    } else if (raw.includes('friends')) {
+    // Extract group ID
+    const grpMatch = raw.match(/~group\((grp_[^)]+)\)/);
+    if (grpMatch) {
+        groupId = grpMatch[1];
+    }
+
+    // Check for group instances first (they may also contain other keywords)
+    if (raw.includes('~group(')) {
+        if (raw.includes('groupAccessType(public)')) {
+            type = 'Group Public';
+        } else if (raw.includes('groupAccessType(plus)')) {
+            type = 'Group+';
+        } else if (raw.includes('groupAccessType(members)')) {
+            type = 'Group';
+        } else {
+            type = 'Group';
+        }
+    } else if (raw.includes('~private(')) {
+        if (raw.includes('~canRequestInvite')) {
+            type = 'Invite+';
+        } else {
+            type = 'Invite';
+        }
+    } else if (raw.includes('~friends(')) {
         type = 'Friends';
-    } else if (raw.includes('hidden')) {
+    } else if (raw.includes('~hidden(')) {
         type = 'Friends+';
     }
 
     let region = 'US';
-    if (raw.includes('region(jp)')) region = 'JP';
-    else if (raw.includes('region(eu)')) region = 'EU';
+    const regionMatch = raw.match(/~region\(([^)]+)\)/);
+    if (regionMatch) {
+        const r = regionMatch[1].toLowerCase();
+        if (r === 'jp') region = 'JP';
+        else if (r === 'eu') region = 'EU';
+        else if (r === 'use') region = 'US East';
+        else if (r === 'usw') region = 'US West';
+        else if (r === 'us') region = 'US';
+    }
 
-    return { name, type, region, creatorId };
+    return { name, type, region, creatorId, groupId };
 };
 
 export const FriendsProvider = ({ children }: { children: React.ReactNode }) => {
@@ -183,23 +227,29 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         if (loc === "offline") return;
 
                         if (!grouped[loc]) {
-                            // Resolve creator
+                            // Parse instance info from location
                             const info = parseInstanceInfo(loc);
-                            let cName = undefined;
-                            if (info && info.creatorId) {
-                                cName = friendMap.get(info.creatorId);
+                            
+                            // Get owner name - from API response or from friends map
+                            let ownerName = f.ownerName || undefined;
+                            if (!ownerName && info && info.creatorId) {
+                                ownerName = friendMap.get(info.creatorId);
                             }
 
                             grouped[loc] = {
                                 id: loc,
                                 worldName: f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`),
                                 worldImageUrl: f.worldImageUrl,
-                                instanceType: info?.type || (f.isPrivate ? "Invite" : "Public"),
+                                instanceType: f.instanceType || info?.type || (f.isPrivate ? "Invite" : "Public"),
                                 region: info?.region || "US",
                                 userCount: 0,
                                 friends: [],
                                 creatorId: info?.creatorId || undefined,
-                                creatorName: cName
+                                creatorName: ownerName,
+                                groupId: f.groupId || info?.groupId || undefined,
+                                groupName: f.groupName || undefined,
+                                ownerId: f.ownerId || info?.creatorId || undefined,
+                                ownerName: ownerName,
                             };
                         }
                         grouped[loc].friends.push(f);

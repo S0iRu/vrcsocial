@@ -1,0 +1,164 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
+
+const API_BASE = 'https://api.vrchat.cloud/api/1';
+const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
+
+// Helper to build auth headers
+async function getAuthHeaders(): Promise<Record<string, string> | null> {
+    const cookieStore = await cookies();
+    const authCookie = cookieStore.get('auth')?.value;
+    const twoFactorCookie = cookieStore.get('twoFactorAuth')?.value;
+    const credsCookie = cookieStore.get('vrc_creds')?.value;
+
+    const headers: Record<string, string> = {
+        'User-Agent': USER_AGENT,
+        'Accept': 'application/json'
+    };
+
+    if (authCookie) {
+        let cookieStr = `auth=${authCookie}`;
+        if (twoFactorCookie) cookieStr += `; twoFactorAuth=${twoFactorCookie}`;
+        headers['Cookie'] = cookieStr;
+    } else if (credsCookie) {
+        headers['Authorization'] = `Basic ${credsCookie}`;
+    } else {
+        return null;
+    }
+
+    return headers;
+}
+
+// Parse instance info from location string
+function parseInstanceInfo(location: string) {
+    if (!location || location === 'offline' || location === 'private') {
+        return { instanceType: 'Private', region: 'Unknown', instanceId: '' };
+    }
+
+    const parts = location.split(':');
+    if (parts.length < 2) {
+        return { instanceType: 'Public', region: 'US', instanceId: '' };
+    }
+
+    const raw = parts[1];
+    const instanceId = raw.split('~')[0];
+
+    let instanceType = 'Public';
+    if (raw.includes('private')) {
+        instanceType = 'Invite';
+    } else if (raw.includes('friends')) {
+        instanceType = 'Friends';
+    } else if (raw.includes('hidden')) {
+        instanceType = 'Friends+';
+    } else if (raw.includes('group')) {
+        instanceType = 'Group';
+    }
+
+    let region = 'US';
+    if (raw.includes('region(jp)')) region = 'JP';
+    else if (raw.includes('region(eu)')) region = 'EU';
+    else if (raw.includes('region(use)')) region = 'US East';
+    else if (raw.includes('region(usw)')) region = 'US West';
+
+    return { instanceType, region, instanceId };
+}
+
+// Get trust rank display name
+// VRChat Trust System:
+// - system_trust_legend / system_trust_veteran → Trusted User (purple)
+// - system_trust_trusted → Known User (orange)
+// - system_trust_known → User (green)
+// - system_trust_basic → New User (blue)
+// - none → Visitor (gray)
+function getTrustRank(tags: string[]): string {
+    if (!tags || !Array.isArray(tags)) return 'Visitor';
+    
+    if (tags.includes('system_trust_legend') || tags.includes('system_trust_veteran')) {
+        return 'Trusted User';
+    }
+    if (tags.includes('system_trust_trusted')) return 'Known User';
+    if (tags.includes('system_trust_known')) return 'User';
+    if (tags.includes('system_trust_basic')) return 'New User';
+    
+    return 'Visitor';
+}
+
+export async function GET(
+    req: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    const { id } = await params;
+
+    const headers = await getAuthHeaders();
+    if (!headers) {
+        return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    try {
+        // Fetch user details
+        const userRes = await fetch(`${API_BASE}/users/${id}`, { headers });
+        
+        if (!userRes.ok) {
+            console.error(`[FriendAPI] Failed to fetch user ${id}:`, userRes.status);
+            return NextResponse.json({ error: 'Failed to fetch user' }, { status: userRes.status });
+        }
+
+        const user = await userRes.json();
+
+        // Fetch world info if user is in a world
+        let worldData = null;
+        if (user.location && user.location.startsWith('wrld_')) {
+            const worldId = user.location.split(':')[0];
+            try {
+                const worldRes = await fetch(`${API_BASE}/worlds/${worldId}`, { headers });
+                if (worldRes.ok) {
+                    worldData = await worldRes.json();
+                }
+            } catch (e) {
+                console.error(`[FriendAPI] Failed to fetch world ${worldId}`);
+            }
+        }
+
+        // Parse instance info
+        const instanceInfo = parseInstanceInfo(user.location || '');
+
+        // Build response
+        const friendData = {
+            id: user.id,
+            name: user.displayName,
+            status: user.status || 'offline',
+            statusMessage: user.statusDescription || '',
+            icon: user.userIcon || user.currentAvatarThumbnailImageUrl || '',
+            profilePicOverride: user.profilePicOverride || '',
+            bio: user.bio || '',
+            trust: getTrustRank(user.tags || []),
+            location: user.location || 'offline',
+            world: worldData ? {
+                id: worldData.id,
+                name: worldData.name,
+                description: worldData.description,
+                authorName: worldData.authorName,
+                thumbnailImageUrl: worldData.thumbnailImageUrl,
+                imageUrl: worldData.imageUrl,
+                capacity: worldData.capacity,
+                occupants: worldData.occupants,
+            } : null,
+            instance: {
+                type: instanceInfo.instanceType,
+                region: instanceInfo.region,
+                id: instanceInfo.instanceId
+            },
+            lastLogin: user.last_login,
+            dateJoined: user.date_joined,
+            isFriend: user.isFriend,
+        };
+
+        return NextResponse.json(friendData);
+
+    } catch (error: any) {
+        console.error('[FriendAPI] Error:', error);
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
+}

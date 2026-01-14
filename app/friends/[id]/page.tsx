@@ -1,80 +1,206 @@
-import { MapPin, Users, Shield, Globe, MoreHorizontal, MessageSquare, ArrowLeft } from "lucide-react";
-import Link from "next/link";
+'use client';
 
-export default async function FriendDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-    const { id } = await params;
-    
-    // Mock Data: 実際にはIDに基づいてデータを取得します
-    const friend = {
-        id: id,
-        name: "Alice",
-        status: "online",
-        statusMessage: "Exploring new worlds!",
-        icon: "https://api.dicebear.com/7.x/avataaars/svg?seed=Alice",
-        banner: "https://placehold.co/1200x400/1e293b/6366f1.png?text=Alice's+Banner",
-        trust: "Trusted",
-        bio: "VRChat photographer and world hopper. Feel free to join!",
-        location: {
-            worldName: "Midnight Rooftop",
-            worldThumb: "https://placehold.co/600x400/1e293b/indigo.png?text=Rooftop",
-            instanceType: "Friends+",
-            region: "US",
-            instanceId: "89324",
-            author: "Mochie"
-        },
-        with: [
-            { name: "Bob_VRC", icon: "https://api.dicebear.com/7.x/avataaars/svg?seed=Bob" },
-            { name: "Charlie", icon: "https://api.dicebear.com/7.x/avataaars/svg?seed=Charlie" },
-            { name: "Fox", icon: "https://api.dicebear.com/7.x/avataaars/svg?seed=Fox" },
-        ]
+import { MapPin, Users, Globe, ArrowLeft, Loader2, UserX } from "lucide-react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useFriends } from "@/components/providers/FriendsProvider";
+
+type FriendData = {
+    id: string;
+    name: string;
+    status: string;
+    statusMessage: string;
+    icon: string;
+    profilePicOverride: string;
+    bio: string;
+    trust: string;
+    location: string;
+    world: {
+        id: string;
+        name: string;
+        description: string;
+        authorName: string;
+        thumbnailImageUrl: string;
+        imageUrl: string;
+        capacity: number;
+        occupants: number;
+    } | null;
+    instance: {
+        type: string;
+        region: string;
+        id: string;
     };
+    lastLogin: string;
+    dateJoined: string;
+    isFriend: boolean;
+};
+
+export default function FriendDetailsPage() {
+    const params = useParams();
+    const id = params.id as string;
+    const { instances } = useFriends();
+
+    const [friend, setFriend] = useState<FriendData | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Find friends in the same instance
+    const friendsInSameInstance = friend?.location && friend.location !== 'offline' && friend.location !== 'private'
+        ? instances
+            .flatMap(inst => inst.friends)
+            .filter(f => f.location === friend.location && f.id !== friend.id)
+        : [];
+
+    useEffect(() => {
+        const fetchFriend = async () => {
+            setLoading(true);
+            setError(null);
+
+            try {
+                const res = await fetch(`/api/friends/${id}`, {
+                    credentials: 'include'
+                });
+
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        setError('ログインが必要です');
+                    } else if (res.status === 404) {
+                        setError('ユーザーが見つかりません');
+                    } else {
+                        setError('データの取得に失敗しました');
+                    }
+                    return;
+                }
+
+                const data = await res.json();
+                setFriend(data);
+            } catch (e) {
+                console.error('Failed to fetch friend:', e);
+                setError('エラーが発生しました');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        if (id) {
+            fetchFriend();
+        }
+    }, [id]);
+
+    // Get status color
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case 'active': return 'bg-green-500';
+            case 'join me': return 'bg-blue-500';
+            case 'ask me': return 'bg-orange-500';
+            case 'busy': return 'bg-red-500';
+            default: return 'bg-slate-500';
+        }
+    };
+
+    // Get trust color (VRChat Trust System)
+    const getTrustColor = (trust: string) => {
+        switch (trust) {
+            case 'Trusted User': return 'text-purple-400 bg-purple-500/10 border-purple-500/20';
+            case 'Known User': return 'text-orange-400 bg-orange-500/10 border-orange-500/20';
+            case 'User': return 'text-green-400 bg-green-500/10 border-green-500/20';
+            case 'New User': return 'text-blue-400 bg-blue-500/10 border-blue-500/20';
+            case 'Visitor': return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
+            default: return 'text-slate-400 bg-slate-500/10 border-slate-500/20';
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+                <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
+                <p className="text-slate-400">Loading...</p>
+            </div>
+        );
+    }
+
+    if (error || !friend) {
+        return (
+            <div className="space-y-6 pb-20">
+                <Link href="/" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
+                    <ArrowLeft className="w-4 h-4" /> Back to Favorites
+                </Link>
+                <div className="glass-card rounded-xl p-12 text-center">
+                    <UserX className="w-16 h-16 text-slate-500 mx-auto mb-4" />
+                    <h2 className="text-xl font-bold text-white mb-2">エラー</h2>
+                    <p className="text-slate-400">{error || 'ユーザーが見つかりません'}</p>
+                </div>
+            </div>
+        );
+    }
+
+    const isOnline = friend.status !== 'offline' && friend.location !== 'offline';
+    const isInWorld = friend.location && friend.location.startsWith('wrld_');
+    const isPrivate = friend.location === 'private' || (friend.location && friend.location.includes('private'));
 
     return (
         <div className="space-y-6 pb-20">
             {/* Back Button */}
-            <Link href="/friends" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
-                <ArrowLeft className="w-4 h-4" /> Back to Friends
+            <Link href="/" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Back to Favorites
             </Link>
 
             {/* Profile Header */}
             <div className="relative rounded-2xl overflow-hidden glass-card group">
-                <div className="h-48 bg-slate-800 relative">
-                    <img src={friend.banner} alt="Banner" className="w-full h-full object-cover" />
+                {/* Banner */}
+                <div className="h-48 bg-gradient-to-br from-indigo-900/50 to-slate-900 relative">
+                    {friend.profilePicOverride && (
+                        <img 
+                            src={friend.profilePicOverride} 
+                            alt="Banner" 
+                            className="w-full h-full object-cover opacity-50" 
+                        />
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent opacity-80"></div>
                 </div>
 
                 <div className="px-6 pb-6 relative -mt-16 flex flex-col md:flex-row items-start md:items-end gap-6">
+                    {/* Avatar */}
                     <div className="relative">
                         <div className="w-32 h-32 rounded-full border-4 border-[#0f172a] bg-slate-800 overflow-hidden">
-                            <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                            {friend.icon ? (
+                                <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-4xl text-slate-500">
+                                    {friend.name.charAt(0)}
+                                </div>
+                            )}
                         </div>
-                        <div className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-[#0f172a] ${friend.status === 'online' ? 'bg-green-500' : 'bg-slate-500'
-                            }`}></div>
+                        <div className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-[#0f172a] ${getStatusColor(friend.status)}`}></div>
                     </div>
 
+                    {/* Name & Status */}
                     <div className="flex-1 mb-2">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
                             <h1 className="text-3xl font-bold text-white">{friend.name}</h1>
-                            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20 uppercase tracking-wider">
+                            <span className={`px-2 py-0.5 rounded text-xs font-semibold border uppercase tracking-wider ${getTrustColor(friend.trust)}`}>
                                 {friend.trust}
                             </span>
                         </div>
-                        <p className="text-slate-300 mt-1">{friend.statusMessage}</p>
+                        {friend.statusMessage && (
+                            <p className="text-slate-300 mt-1">{friend.statusMessage}</p>
+                        )}
+                        <p className="text-xs text-slate-500 mt-2 capitalize">
+                            Status: {friend.status || 'offline'}
+                        </p>
                     </div>
 
-                    <div className="flex gap-3 mb-2 w-full md:w-auto">
-                        <button className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/20 active:scale-95">
-                            Join
-                        </button>
-                        <button className="flex items-center justify-center p-2.5 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors">
-                            <MessageSquare className="w-5 h-5" />
-                        </button>
-                        <button className="flex items-center justify-center p-2.5 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors">
-                            <MoreHorizontal className="w-5 h-5" />
-                        </button>
-                    </div>
                 </div>
             </div>
+
+            {/* Bio */}
+            {friend.bio && (
+                <div className="glass-card p-6 rounded-2xl">
+                    <h3 className="text-lg font-bold text-white mb-3">Bio</h3>
+                    <p className="text-slate-300 text-sm whitespace-pre-wrap">{friend.bio}</p>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left Column: Current Location */}
@@ -83,28 +209,51 @@ export default async function FriendDetailsPage({ params }: { params: Promise<{ 
                         <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                             <MapPin className="w-5 h-5 text-indigo-400" /> Current World
                         </h3>
-                        <div className="group relative rounded-xl overflow-hidden aspect-video bg-slate-800 mb-4">
-                            <img src={friend.location.worldThumb} alt={friend.location.worldName} className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-6">
-                                <div>
-                                    <h2 className="text-2xl font-bold text-white mb-1">{friend.location.worldName}</h2>
-                                    <p className="text-sm text-slate-300">by {friend.location.author}</p>
-                                </div>
-                            </div>
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-                                <p className="text-xs text-slate-400 uppercase">Instance</p>
-                                <p className="text-white font-medium mt-1">{friend.location.instanceType} #{friend.location.instanceId}</p>
+                        {!isOnline ? (
+                            <div className="text-center py-8">
+                                <p className="text-slate-500">This user is currently offline</p>
                             </div>
-                            <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-                                <p className="text-xs text-slate-400 uppercase">Region</p>
-                                <p className="text-white font-medium mt-1 flex items-center gap-2">
-                                    <Globe className="w-4 h-4 text-slate-400" /> {friend.location.region}
-                                </p>
+                        ) : isPrivate ? (
+                            <div className="text-center py-8">
+                                <p className="text-slate-500">This user is in a private world</p>
                             </div>
-                        </div>
+                        ) : friend.world ? (
+                            <>
+                                <div className="group relative rounded-xl overflow-hidden aspect-video bg-slate-800 mb-4">
+                                    <img 
+                                        src={friend.world.thumbnailImageUrl || friend.world.imageUrl} 
+                                        alt={friend.world.name} 
+                                        className="w-full h-full object-cover" 
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-6">
+                                        <div>
+                                            <h2 className="text-2xl font-bold text-white mb-1">{friend.world.name}</h2>
+                                            <p className="text-sm text-slate-300">by {friend.world.authorName}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                                        <p className="text-xs text-slate-400 uppercase">Instance</p>
+                                        <p className="text-white font-medium mt-1">
+                                            {friend.instance.type} {friend.instance.id && `#${friend.instance.id}`}
+                                        </p>
+                                    </div>
+                                    <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                                        <p className="text-xs text-slate-400 uppercase">Region</p>
+                                        <p className="text-white font-medium mt-1 flex items-center gap-2">
+                                            <Globe className="w-4 h-4 text-slate-400" /> {friend.instance.region}
+                                        </p>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="text-center py-8">
+                                <p className="text-slate-500">World information unavailable</p>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -112,29 +261,44 @@ export default async function FriendDetailsPage({ params }: { params: Promise<{ 
                 <div className="space-y-6">
                     <div className="glass-card p-6 rounded-2xl h-full">
                         <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                            <Users className="w-5 h-5 text-green-400" /> With ({friend.with.length})
+                            <Users className="w-5 h-5 text-green-400" /> 
+                            Friends Here ({friendsInSameInstance.length})
                         </h3>
                         <p className="text-sm text-slate-400 mb-6">
-                            Other friends currently in this instance.
+                            Other favorite friends in the same instance.
                         </p>
 
-                        <div className="space-y-4">
-                            {friend.with.map((user, i) => (
-                                <div key={i} className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group">
-                                    <div className="w-10 h-10 rounded-full bg-slate-800 overflow-hidden">
-                                        <img src={user.icon} alt={user.name} className="w-full h-full object-cover" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium text-white group-hover:text-indigo-400 transition-colors">{user.name}</p>
-                                        <p className="text-xs text-green-400">In World</p>
-                                    </div>
-                                </div>
-                            ))}
-
-                            <button className="w-full py-3 mt-4 text-sm font-medium text-slate-400 hover:text-white border border-dashed border-slate-600 hover:border-slate-400 rounded-xl transition-all">
-                                + 2 others hidden
-                            </button>
-                        </div>
+                        {friendsInSameInstance.length === 0 ? (
+                            <div className="text-center py-4">
+                                <p className="text-slate-500 text-sm">No other friends in this instance</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {friendsInSameInstance.map((f) => (
+                                    <Link 
+                                        key={f.id} 
+                                        href={`/friends/${f.id}`}
+                                        className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group"
+                                    >
+                                        <div className="w-10 h-10 rounded-full bg-slate-800 overflow-hidden">
+                                            {f.icon ? (
+                                                <img src={f.icon} alt={f.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-slate-500">
+                                                    {f.name?.charAt(0) || '?'}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-white group-hover:text-indigo-400 transition-colors truncate">
+                                                {f.name}
+                                            </p>
+                                            <p className="text-xs text-green-400">In World</p>
+                                        </div>
+                                    </Link>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

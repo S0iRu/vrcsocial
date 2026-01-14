@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse, addRateLimitHeaders, resetRateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
@@ -46,13 +47,26 @@ export async function POST(req: NextRequest) {
         const credentials = Buffer.from(`${username}:${password}`).toString('base64');
         const authHeader = `Basic ${credentials}`;
 
+        // Get existing cookies to potentially skip 2FA
+        const cookieStore = await cookies();
+        const existingTwoFactorAuth = cookieStore.get('twoFactorAuth')?.value;
+        
+        // Build request headers
+        const requestHeaders: Record<string, string> = {
+            'Authorization': authHeader,
+            'User-Agent': USER_AGENT,
+            'Accept': 'application/json'
+        };
+        
+        // If we have a valid twoFactorAuth cookie, send it to potentially skip 2FA
+        if (existingTwoFactorAuth) {
+            requestHeaders['Cookie'] = `twoFactorAuth=${existingTwoFactorAuth}`;
+            console.log('[Login] Sending existing twoFactorAuth cookie to skip 2FA');
+        }
+
         const res = await fetch(`${API_BASE}/auth/user`, {
             method: 'GET',
-            headers: {
-                'Authorization': authHeader,
-                'User-Agent': USER_AGENT,
-                'Accept': 'application/json'
-            }
+            headers: requestHeaders
         });
 
         // Handle Cookie Extraction - using standard API if available
@@ -140,6 +154,10 @@ export async function POST(req: NextRequest) {
                 // We forward specific auth cookies. 'auth' is critical.
                 if (['auth', 'twofactorauth', 'apikey'].includes(lowerName)) {
                     console.log(`[Login] Forwarding Valid Cookie: ${name.trim()}`);
+                    // twoFactorAuth cookie gets longer expiry to avoid repeated 2FA
+                    const maxAge = lowerName === 'twofactorauth' 
+                        ? 60 * 60 * 24 * 30  // 30 days for 2FA
+                        : 60 * 60 * 24 * 7;  // 7 days for others
                     response.cookies.set({
                         name: name.trim(),
                         value: value.trim(),
@@ -147,7 +165,7 @@ export async function POST(req: NextRequest) {
                         path: '/',
                         secure: process.env.NODE_ENV === 'production',
                         sameSite: 'strict',
-                        maxAge: 60 * 60 * 24 * 7 // 7 days
+                        maxAge
                     });
                 }
             }
@@ -162,6 +180,20 @@ export async function POST(req: NextRequest) {
             sameSite: 'strict',
             maxAge: 60 * 60 * 24 * 7 // 7 days
         });
+
+        // Preserve existing twoFactorAuth cookie if we have it and VRChat didn't send a new one
+        if (existingTwoFactorAuth && !cookieStrings.some(c => c.toLowerCase().startsWith('twofactorauth='))) {
+            console.log('[Login] Preserving existing twoFactorAuth cookie');
+            response.cookies.set({
+                name: 'twoFactorAuth',
+                value: existingTwoFactorAuth,
+                httpOnly: true,
+                path: '/',
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'strict',
+                maxAge: 60 * 60 * 24 * 30 // 30 days
+            });
+        }
 
         return response;
 

@@ -69,24 +69,46 @@ export async function POST(req: NextRequest) {
         if (data.verified) {
             const response = NextResponse.json({ verified: true });
 
-            // Extract cookies manually
-            const headerVal = verifyRes.headers.get('set-cookie');
-            if (headerVal) {
-                const rawCookies = headerVal.split(/,(?=\s*\S+=)/);
-                rawCookies.forEach(cookieStr => {
-                    const [keyVal] = cookieStr.split(';');
-                    const [key, val] = keyVal.split('=');
-                    if (['auth', 'twoFactorAuth', 'apiKey'].includes(key.trim())) {
-                        response.cookies.set(key.trim(), val, {
+            // Helper to get cookies from response (same as login route)
+            const getCookies = (res: Response): string[] => {
+                // @ts-ignore: getSetCookie is available in newer Node/Next environments
+                if (typeof res.headers.getSetCookie === 'function') {
+                    // @ts-ignore
+                    return res.headers.getSetCookie();
+                }
+                // Fallback for older environments
+                const raw = res.headers.get('set-cookie');
+                if (!raw) return [];
+                return raw.split(/,(?=\s*[a-zA-Z0-9_-]+=)/).map(s => s.trim());
+            };
+
+            // Extract and forward cookies
+            const cookieStrings = getCookies(verifyRes);
+            console.log(`[Verify] Received ${cookieStrings.length} cookies from VRChat`);
+            
+            cookieStrings.forEach(cookieStr => {
+                const firstSemi = cookieStr.indexOf(';');
+                const nameValue = firstSemi > 0 ? cookieStr.slice(0, firstSemi) : cookieStr;
+                const [name, ...valParts] = nameValue.split('=');
+                const value = valParts.join('=');
+
+                if (name && value) {
+                    const lowerName = name.trim().toLowerCase();
+                    if (['auth', 'twofactorauth', 'apikey'].includes(lowerName)) {
+                        console.log(`[Verify] Forwarding cookie: ${name.trim()}`);
+                        response.cookies.set({
+                            name: name.trim(),
+                            value: value.trim(),
                             httpOnly: true,
                             secure: process.env.NODE_ENV === 'production',
                             path: '/',
                             sameSite: 'strict',
-                            maxAge: 60 * 60 * 24 * 7
+                            maxAge: 60 * 60 * 24 * 30 // 30 days for 2FA cookie
                         });
                     }
-                });
-            }
+                }
+            });
+            
             return response;
         }
 

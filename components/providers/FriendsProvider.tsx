@@ -12,6 +12,7 @@ type Friend = {
     location: string;
     worldName?: string;
     favoriteGroup?: string;  // e.g., "group_0", "group_1", etc.
+    joinedAt?: number;       // Timestamp when friend joined current instance (tracked locally)
     [key: string]: any;
 };
 
@@ -134,6 +135,31 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     // Refs for logging diffs
     const previousFriendsRef = useRef<Map<string, any>>(new Map());
     const isFirstLoadRef = useRef(true);
+    
+    // Track when each friend joined their current instance (friendId -> { location, joinedAt })
+    const locationTimestampsRef = useRef<Map<string, { location: string; joinedAt: number }>>(new Map());
+    const timestampsInitializedRef = useRef(false);
+    
+    // Load timestamps from localStorage on mount
+    useEffect(() => {
+        if (timestampsInitializedRef.current) return;
+        timestampsInitializedRef.current = true;
+        
+        try {
+            const saved = localStorage.getItem('vrc_location_timestamps');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                const map = new Map<string, { location: string; joinedAt: number }>();
+                Object.entries(parsed).forEach(([id, data]: [string, any]) => {
+                    map.set(id, data);
+                });
+                locationTimestampsRef.current = map;
+                console.log('[FriendsProvider] Loaded location timestamps from localStorage:', map.size);
+            }
+        } catch (e) {
+            console.error('[FriendsProvider] Failed to load location timestamps:', e);
+        }
+    }, []);
 
     const fetchFriends = useCallback(async (isBackground = false) => {
         if (isBackground) {
@@ -218,6 +244,43 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 isFirstLoadRef.current = false;
                 // --- LOGGING LOGIC END ---
 
+                // --- LOCATION TIMESTAMP TRACKING ---
+                const now = Date.now();
+                let timestampsChanged = false;
+                
+                currentFriendsMap.forEach((friend, id) => {
+                    const existing = locationTimestampsRef.current.get(id);
+                    if (!existing || existing.location !== friend.location) {
+                        // New friend or location changed - record new timestamp
+                        locationTimestampsRef.current.set(id, {
+                            location: friend.location,
+                            joinedAt: now
+                        });
+                        timestampsChanged = true;
+                    }
+                });
+                // Clean up friends who are no longer online
+                locationTimestampsRef.current.forEach((_, id) => {
+                    if (!currentFriendsMap.has(id)) {
+                        locationTimestampsRef.current.delete(id);
+                        timestampsChanged = true;
+                    }
+                });
+                
+                // Save to localStorage if changed
+                if (timestampsChanged) {
+                    try {
+                        const obj: Record<string, { location: string; joinedAt: number }> = {};
+                        locationTimestampsRef.current.forEach((data, id) => {
+                            obj[id] = data;
+                        });
+                        localStorage.setItem('vrc_location_timestamps', JSON.stringify(obj));
+                    } catch (e) {
+                        console.error('[FriendsProvider] Failed to save location timestamps:', e);
+                    }
+                }
+                // --- LOCATION TIMESTAMP TRACKING END ---
+
                 // Group friends by location
                 const grouped: Record<string, InstanceGroup> = {};
 
@@ -259,9 +322,16 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                                 ownerName: ownerName,
                             };
                         }
+                        // Add joinedAt timestamp to friend
+                        const timestampData = locationTimestampsRef.current.get(f.id);
+                        const friendWithTimestamp = {
+                            ...f,
+                            joinedAt: timestampData?.joinedAt || now
+                        };
+
                         // Separate favorite and non-favorite friends
                         if (f.isFavorite) {
-                            grouped[loc].friends.push(f);
+                            grouped[loc].friends.push(friendWithTimestamp);
                             grouped[loc].userCount++;
                             // Track minimum favorite group number (e.g., "group_0" -> 0)
                             if (f.favoriteGroup) {
@@ -271,7 +341,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                                 }
                             }
                         } else {
-                            grouped[loc].otherFriends.push(f);
+                            grouped[loc].otherFriends.push(friendWithTimestamp);
                         }
                     });
                 }

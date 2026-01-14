@@ -1,10 +1,11 @@
 'use client';
 
-import { Globe, MoreHorizontal, User, Star, Users, ArrowRight, Loader2, RefreshCw } from "lucide-react";
+import { Globe, MoreHorizontal, User, Star, Users, ArrowRight, Loader2, RefreshCw, Clock } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useFriends } from "@/components/providers/FriendsProvider";
+import { useState, useEffect } from "react";
 
 // Types
 type Friend = {
@@ -15,7 +16,31 @@ type Friend = {
     statusMsg?: string;
     location: string;
     worldName?: string;
+    joinedAt?: number;
     [key: string]: any;
+};
+
+// Format duration from timestamp
+const formatDuration = (joinedAt: number | undefined): string => {
+    if (!joinedAt) return '';
+    const now = Date.now();
+    const diffMs = now - joinedAt;
+    const totalSeconds = Math.floor(diffMs / 1000);
+    
+    const seconds = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const minutes = totalMinutes % 60;
+    const totalHours = Math.floor(totalMinutes / 60);
+    const hours = totalHours % 24;
+    const days = Math.floor(totalHours / 24);
+    
+    if (days > 0) {
+        return `${days}日${hours}時間${minutes}分`;
+    }
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 };
 
 type InstanceGroup = {
@@ -49,6 +74,13 @@ const getStatusColor = (status: string) => {
 export default function FavoritesPage() {
     const router = useRouter();
     const { instances, loading, isAuthenticated, lastUpdated, isRefreshing, refresh } = useFriends();
+    
+    // Force re-render every second to update duration display
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        const timer = setInterval(() => setTick(t => t + 1), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     return (
         <div className="space-y-6 md:space-y-8 pb-24 md:pb-20">
@@ -191,11 +223,19 @@ export default function FavoritesPage() {
                                                     </div>
                                                     <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
                                                 </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-xs md:text-sm font-medium text-slate-200 group-hover/friend:text-white truncate flex items-center gap-1">
-                                                        {friend.name}
-                                                        <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />
-                                                    </p>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <p className="text-xs md:text-sm font-medium text-slate-200 group-hover/friend:text-white truncate flex items-center gap-1">
+                                                            {friend.name}
+                                                            <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />
+                                                        </p>
+                                                        {friend.joinedAt && (
+                                                            <span className="text-[10px] text-slate-500 flex items-center gap-0.5 shrink-0">
+                                                                <Clock className="w-2.5 h-2.5" />
+                                                                {formatDuration(friend.joinedAt)}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     {friend.statusMsg && (
                                                         <p className="text-[10px] md:text-xs text-slate-500 truncate mt-0.5">
                                                             {friend.statusMsg}
@@ -235,10 +275,18 @@ export default function FavoritesPage() {
                                                     </div>
                                                     <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
                                                 </div>
-                                                <div className="min-w-0">
-                                                    <p className="text-xs md:text-sm font-medium text-slate-400 group-hover/friend:text-slate-200 truncate">
-                                                        {friend.name}
-                                                    </p>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <p className="text-xs md:text-sm font-medium text-slate-400 group-hover/friend:text-slate-200 truncate">
+                                                            {friend.name}
+                                                        </p>
+                                                        {friend.joinedAt && (
+                                                            <span className="text-[10px] text-slate-600 flex items-center gap-0.5 shrink-0">
+                                                                <Clock className="w-2.5 h-2.5" />
+                                                                {formatDuration(friend.joinedAt)}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     {friend.statusMsg && (
                                                         <p className="text-[10px] md:text-xs text-slate-600 truncate mt-0.5">
                                                             {friend.statusMsg}

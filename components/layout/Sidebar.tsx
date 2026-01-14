@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 
 const Sidebar = () => {
   const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -22,6 +23,8 @@ const Sidebar = () => {
         }
       } catch (e) {
         console.error(e);
+      } finally {
+        setLoading(false);
       }
     };
     fetchUser();
@@ -70,17 +73,29 @@ const Sidebar = () => {
 
         <div className="p-4 border-t border-white/5">
           <div className="glass-card p-3 rounded-xl flex items-center gap-3 relative pr-10">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold overflow-hidden shadow-sm border border-white/10 shrink-0">
-              {user?.currentAvatarThumbnailImageUrl ? (
-                <img src={user.currentAvatarThumbnailImageUrl} alt="User" className="w-full h-full object-cover" />
-              ) : (
-                'U'
-              )}
-            </div>
-            <div className="overflow-hidden min-w-0">
-              <p className="text-sm font-medium text-white truncate leading-tight">{user?.displayName || 'Guest'}</p>
-              <p className="text-xs text-green-400 truncate mt-0.5">{user ? 'Online' : 'Not Loaded'}</p>
-            </div>
+            {loading ? (
+              <>
+                <div className="w-10 h-10 rounded-full bg-slate-700 animate-pulse shrink-0"></div>
+                <div className="overflow-hidden min-w-0 flex-1">
+                  <div className="h-4 bg-slate-700 rounded animate-pulse w-24"></div>
+                  <div className="h-3 bg-slate-700 rounded animate-pulse w-16 mt-1.5"></div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold overflow-hidden shadow-sm border border-white/10 shrink-0">
+                  {user?.currentAvatarThumbnailImageUrl ? (
+                    <img src={user.currentAvatarThumbnailImageUrl} alt="User" className="w-full h-full object-cover" />
+                  ) : (
+                    'U'
+                  )}
+                </div>
+                <div className="overflow-hidden min-w-0">
+                  <p className="text-sm font-medium text-white truncate leading-tight">{user?.displayName || 'Guest'}</p>
+                  <p className="text-xs text-green-400 truncate mt-0.5">{user ? 'Online' : 'Offline'}</p>
+                </div>
+              </>
+            )}
 
             <button
               onClick={handleLogout}

@@ -138,9 +138,11 @@ export default function FavoritesPage() {
                                                 }`}>
                                                     {group.instanceType}
                                                 </span>
-                                                <span className="text-[10px] md:text-xs text-slate-500 font-mono">
-                                                    {group.region}
-                                                </span>
+                                                {group.region && (
+                                                    <span className="text-[10px] md:text-xs text-slate-500 font-mono">
+                                                        {group.region}
+                                                    </span>
+                                                )}
                                                 {group.groupName ? (
                                                     <span className="text-[10px] md:text-xs text-cyan-300 bg-cyan-500/10 px-1.5 rounded flex items-center gap-1">
                                                         Group: {group.groupName}

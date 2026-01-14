@@ -245,7 +245,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                                 worldName: f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`),
                                 worldImageUrl: f.worldImageUrl,
                                 instanceType: f.instanceType || info?.type || (f.isPrivate ? "Invite" : "Public"),
-                                region: info?.region || "US",
+                                region: f.isPrivate || loc === 'private' || loc.includes('private') ? "" : (info?.region || "US"),
                                 userCount: 0,
                                 instanceUserCount: f.instanceUserCount || undefined,
                                 friends: [],

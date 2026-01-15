@@ -66,7 +66,7 @@ const FriendsContext = createContext<FriendsContextType>({
 
 // Parse instance info from location string
 const parseInstanceInfo = (location: string) => {
-    if (!location || location === 'offline' || location === 'private') return null;
+    if (!location || location === 'offline' || location === 'private' || location === 'traveling') return null;
     const parts = location.split(':');
     if (parts.length < 2) return { name: '', type: 'Public', region: 'US', creatorId: null, groupId: null };
 
@@ -231,28 +231,34 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             const loc = f.location || "offline";
             if (loc === "offline") return;
 
-            if (!grouped[loc]) {
+            // Handle traveling state - group all traveling friends together
+            const effectiveLoc = loc === "traveling" ? "traveling" : loc;
+
+            if (!grouped[effectiveLoc]) {
                 const info = parseInstanceInfo(loc);
                 let ownerName = f.ownerName || undefined;
                 if (!ownerName && info?.creatorId) ownerName = friendMap.get(info.creatorId);
 
-                grouped[loc] = {
-                    id: loc,
-                    worldName: f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`),
-                    worldImageUrl: f.worldImageUrl,
-                    instanceType: f.instanceType || info?.type || "Public",
-                    region: f.isPrivate || loc === 'private' ? "" : (info?.region || "US"),
+                // Special handling for traveling state
+                const isTraveling = effectiveLoc === "traveling";
+                
+                grouped[effectiveLoc] = {
+                    id: effectiveLoc,
+                    worldName: isTraveling ? "Traveling" : (f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`)),
+                    worldImageUrl: isTraveling ? undefined : f.worldImageUrl,
+                    instanceType: isTraveling ? "Traveling" : (f.instanceType || info?.type || "Public"),
+                    region: isTraveling ? "" : (f.isPrivate || loc === 'private' ? "" : (info?.region || "US")),
                     userCount: 0,
-                    instanceUserCount: f.instanceUserCount,
+                    instanceUserCount: isTraveling ? undefined : f.instanceUserCount,
                     friends: [],
                     otherFriends: [],
                     minFavoriteGroup: 999,
-                    creatorId: info?.creatorId ?? undefined,
-                    creatorName: ownerName,
-                    groupId: f.groupId || (info?.groupId ?? undefined),
-                    groupName: f.groupName,
-                    ownerId: f.ownerId || (info?.creatorId ?? undefined),
-                    ownerName: ownerName,
+                    creatorId: isTraveling ? undefined : (info?.creatorId ?? undefined),
+                    creatorName: isTraveling ? undefined : ownerName,
+                    groupId: isTraveling ? undefined : (f.groupId || (info?.groupId ?? undefined)),
+                    groupName: isTraveling ? undefined : f.groupName,
+                    ownerId: isTraveling ? undefined : (f.ownerId || (info?.creatorId ?? undefined)),
+                    ownerName: isTraveling ? undefined : ownerName,
                 };
             }
 
@@ -260,16 +266,16 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             const friendWithTimestamp = { ...f, joinedAt: timestampData?.joinedAt || now };
 
             if (f.isFavorite) {
-                grouped[loc].friends.push(friendWithTimestamp);
-                grouped[loc].userCount++;
+                grouped[effectiveLoc].friends.push(friendWithTimestamp);
+                grouped[effectiveLoc].userCount++;
                 if (f.favoriteGroup) {
                     const groupNum = parseInt(f.favoriteGroup.replace('group_', ''), 10);
-                    if (!isNaN(groupNum) && groupNum < grouped[loc].minFavoriteGroup) {
-                        grouped[loc].minFavoriteGroup = groupNum;
+                    if (!isNaN(groupNum) && groupNum < grouped[effectiveLoc].minFavoriteGroup) {
+                        grouped[effectiveLoc].minFavoriteGroup = groupNum;
                     }
                 }
             } else {
-                grouped[loc].otherFriends.push(friendWithTimestamp);
+                grouped[effectiveLoc].otherFriends.push(friendWithTimestamp);
             }
         });
 
@@ -297,6 +303,13 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             .sort((a, b) => {
                 const aIsHidden = a.id === 'private' || a.worldName === 'Private World';
                 const bIsHidden = b.id === 'private' || b.worldName === 'Private World';
+                const aIsTraveling = a.id === 'traveling';
+                const bIsTraveling = b.id === 'traveling';
+                // Traveling goes before private but after regular instances
+                if (aIsTraveling && !bIsTraveling && !bIsHidden) return 1;
+                if (!aIsTraveling && bIsTraveling && !aIsHidden) return -1;
+                if (aIsTraveling && bIsHidden) return -1;
+                if (aIsHidden && bIsTraveling) return 1;
                 // Private/unknown location goes last
                 if (aIsHidden && !bIsHidden) return 1;
                 if (!aIsHidden && bIsHidden) return -1;
@@ -505,6 +518,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const isFavorite = existingFriend?.isFavorite ?? favoriteIdsRef.current.has(userId);
                 const favoriteGroup = existingFriend?.favoriteGroup ?? favoriteGroupsRef.current.get(userId);
 
+                // Get previous location info
+                const prevWorldName = existingFriend?.worldName || 'Unknown';
+
                 let worldName = data.world?.name;
                 let worldImageUrl = data.world?.thumbnailImageUrl;
 
@@ -548,7 +564,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 saveTimestamps();
                 // Only log favorite friends
                 if (isFavorite) {
-                    addLogEntry('GPS', user.displayName, worldName || 'Private', 'text-orange-400');
+                    const newWorldName = worldName || 'Private';
+                    const logDetail = `${prevWorldName} → ${newWorldName}`;
+                    addLogEntry('GPS', user.displayName, logDetail, 'text-orange-400');
                 }
                 rebuildInstances();
                 break;
@@ -560,11 +578,27 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const existingFriend = friendsDataRef.current.get(userId);
 
                 if (existingFriend) {
+                    const isFavorite = existingFriend.isFavorite;
+                    const prevStatus = existingFriend.status;
+                    const prevStatusMsg = existingFriend.statusMsg;
+                    const newStatus = user.status || existingFriend.status;
+                    const newStatusMsg = user.statusDescription ?? existingFriend.statusMsg;
+
+                    // Log status change for favorites
+                    if (isFavorite && prevStatus && newStatus && prevStatus !== newStatus) {
+                        addLogEntry('Status', user.displayName, `${prevStatus} → ${newStatus}`, 'text-cyan-400');
+                    }
+
+                    // Log status message change for favorites
+                    if (isFavorite && prevStatusMsg !== newStatusMsg && newStatusMsg) {
+                        addLogEntry('StatusMsg', user.displayName, newStatusMsg, 'text-purple-400');
+                    }
+
                     friendsDataRef.current.set(userId, {
                         ...existingFriend,
                         name: user.displayName,
-                        status: user.status || existingFriend.status,
-                        statusMsg: user.statusDescription || existingFriend.statusMsg,
+                        status: newStatus,
+                        statusMsg: newStatusMsg,
                         icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || existingFriend.icon,
                     });
                     rebuildInstances();

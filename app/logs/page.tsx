@@ -80,46 +80,45 @@ export default function LogsPage() {
             case 'OnLine': return { icon: Radio, color: 'text-green-400', bg: 'bg-green-500/10' };
             case 'GPS': return { icon: MapPin, color: 'text-orange-400', bg: 'bg-orange-500/10' };
             case 'Offline': return { icon: Radio, color: 'text-slate-500', bg: 'bg-slate-500/10' };
+            case 'Status': return { icon: Clock, color: 'text-cyan-400', bg: 'bg-cyan-500/10' };
+            case 'StatusMsg': return { icon: Clock, color: 'text-purple-400', bg: 'bg-purple-500/10' };
             default: return { icon: Clock, color: 'text-blue-400', bg: 'bg-blue-500/10' };
         }
     };
 
-    const logTypes = ['all', 'OnLine', 'GPS', 'Offline'];
+    const logTypes = ['all', 'OnLine', 'GPS', 'Offline', 'Status', 'StatusMsg'];
 
     return (
-        <div className="space-y-6 md:space-y-8 pb-24 md:pb-20">
+        <div className="space-y-4 md:space-y-6 pb-24 md:pb-20">
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-1">
-                <div>
-                    <h2 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-2 md:gap-3">
-                        <History className="w-6 h-6 md:w-8 md:h-8 text-blue-500" /> Logs
+            <div className="flex items-center justify-between gap-2 px-1">
+                <div className="flex items-center gap-2 md:gap-3">
+                    <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+                        <History className="w-5 h-5 md:w-6 md:h-6 text-blue-500" /> Logs
                     </h2>
-                    <div className="flex items-center gap-3 mt-1">
-                        <p className="text-sm md:text-base text-muted-foreground">Activity History</p>
-                        {isAuthenticated && (
-                            <span className={`text-xs flex items-center gap-1 ${getWsStatusDisplay(wsConnectionState).color}`}>
-                                {(() => {
-                                    const status = getWsStatusDisplay(wsConnectionState);
-                                    const Icon = status.icon;
-                                    return <Icon className="w-3 h-3" />;
-                                })()}
-                                <span className="hidden sm:inline">{getWsStatusDisplay(wsConnectionState).label}</span>
-                            </span>
-                        )}
-                        <span className="text-xs text-slate-600">
-                            {filteredLogs.length} / {logs.length} entries
+                    {isAuthenticated && (
+                        <span className={`text-xs flex items-center gap-1 ${getWsStatusDisplay(wsConnectionState).color}`}>
+                            {(() => {
+                                const status = getWsStatusDisplay(wsConnectionState);
+                                const Icon = status.icon;
+                                return <Icon className="w-3 h-3" />;
+                            })()}
+                            <span className="hidden sm:inline">{getWsStatusDisplay(wsConnectionState).label}</span>
                         </span>
-                    </div>
+                    )}
+                    <span className="text-xs text-slate-600">
+                        {filteredLogs.length}/{logs.length}
+                    </span>
                 </div>
 
                 {/* Clear Button */}
                 {logs.length > 0 && (
                     <button
                         onClick={clearLogs}
-                        className="flex items-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors"
+                        className="flex items-center gap-1.5 px-2 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-xs transition-colors"
                     >
-                        <Trash2 className="w-4 h-4" />
-                        <span className="hidden sm:inline">Clear Logs</span>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Clear</span>
                     </button>
                 )}
             </div>
@@ -156,59 +155,55 @@ export default function LogsPage() {
                 </div>
             </div>
 
-            {/* Logs List */}
+            {/* Logs Table */}
             {filteredLogs.length === 0 ? (
-                <div className="glass-card rounded-xl p-8 md:p-12 text-center">
-                    <div className="w-16 h-16 md:w-20 md:h-20 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-6">
-                        <History className="w-8 h-8 md:w-10 md:h-10 text-blue-400" />
+                <div className="glass-card rounded-xl p-6 md:p-8 text-center">
+                    <div className="w-12 h-12 md:w-14 md:h-14 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <History className="w-6 h-6 md:w-7 md:h-7 text-blue-400" />
                     </div>
-                    <h3 className="text-lg md:text-xl font-bold text-white mb-2">No Logs Found</h3>
-                    <p className="text-muted-foreground max-w-sm mx-auto text-sm md:text-base">
+                    <h3 className="text-base md:text-lg font-bold text-white mb-1">No Logs Found</h3>
+                    <p className="text-muted-foreground text-xs md:text-sm">
                         {logs.length === 0
-                            ? "Activity logs will appear here as your friends come online, go offline, or change worlds."
-                            : "No logs match your current filter."}
+                            ? "Activity logs will appear here."
+                            : "No logs match your filter."}
                     </p>
                 </div>
             ) : (
-                <div className="space-y-2">
-                    {filteredLogs.map((log) => {
-                        const style = getLogStyle(log.type);
-                        const Icon = style.icon;
-
-                        return (
-                            <div
-                                key={log.id}
-                                className="glass-card rounded-lg p-3 md:p-4 hover:border-indigo-500/30 transition-all duration-300"
-                            >
-                                <div className="flex items-center gap-3">
-                                    {/* Icon */}
-                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${style.bg}`}>
-                                        <Icon className={`w-5 h-5 ${style.color}`} />
-                                    </div>
-
-                                    {/* Content */}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <span className={`text-xs font-medium px-2 py-0.5 rounded ${style.bg} ${style.color}`}>
-                                                    {log.type}
-                                                </span>
-                                                <span className="font-medium text-white truncate">
-                                                    {log.user}
-                                                </span>
-                                            </div>
-                                            <span className="text-xs text-slate-500 font-mono shrink-0">
-                                                {log.date}
-                                            </span>
-                                        </div>
-                                        <p className="text-sm text-slate-400 mt-1 truncate">
+                <div className="glass-card rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="border-b border-white/10 text-slate-400 text-xs">
+                                <th className="text-left px-3 py-2 font-medium w-28">Date</th>
+                                <th className="text-left px-3 py-2 font-medium w-20">Type</th>
+                                <th className="text-left px-3 py-2 font-medium w-36">User</th>
+                                <th className="text-left px-3 py-2 font-medium">Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {filteredLogs.map((log) => {
+                                const style = getLogStyle(log.type);
+                                return (
+                                    <tr
+                                        key={log.id}
+                                        className="hover:bg-white/5 transition-colors"
+                                    >
+                                        <td className="px-3 py-2 text-slate-500 font-mono text-xs whitespace-nowrap">
+                                            {log.date}
+                                        </td>
+                                        <td className={`px-3 py-2 ${style.color} text-xs`}>
+                                            {log.type}
+                                        </td>
+                                        <td className="px-3 py-2 text-white font-medium truncate max-w-36">
+                                            {log.user}
+                                        </td>
+                                        <td className="px-3 py-2 text-slate-400 truncate">
                                             {log.detail}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
             )}
         </div>

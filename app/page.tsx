@@ -1,10 +1,10 @@
 'use client';
 
-import { Globe, MoreHorizontal, User, Star, Users, ArrowRight, Loader2, RefreshCw, Clock } from "lucide-react";
+import { Globe, MoreHorizontal, User, Star, Users, ArrowRight, Loader2, RefreshCw, Clock, Wifi, WifiOff } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useFriends } from "@/components/providers/FriendsProvider";
+import { useFriends, ConnectionState } from "@/components/providers/FriendsProvider";
 import { useState, useEffect } from "react";
 
 // Types
@@ -71,9 +71,23 @@ const getStatusColor = (status: string) => {
     return 'bg-slate-500'; // offline or unknown
 };
 
+// Get WebSocket connection status display
+const getWsStatusDisplay = (state: ConnectionState) => {
+    switch (state) {
+        case 'connected':
+            return { icon: Wifi, color: 'text-green-400', label: 'Live' };
+        case 'connecting':
+        case 'reconnecting':
+            return { icon: Wifi, color: 'text-yellow-400 animate-pulse', label: 'Connecting...' };
+        case 'disconnected':
+        default:
+            return { icon: WifiOff, color: 'text-slate-500', label: 'Polling' };
+    }
+};
+
 export default function FavoritesPage() {
     const router = useRouter();
-    const { instances, loading, isAuthenticated, lastUpdated, isRefreshing, refresh } = useFriends();
+    const { instances, loading, isAuthenticated, lastUpdated, wsConnectionState, refresh } = useFriends();
     
     // Force re-render every second to update duration display
     const [, setTick] = useState(0);
@@ -91,6 +105,17 @@ export default function FavoritesPage() {
                     </h2>
                     <div className="flex items-center gap-3 mt-1">
                         <p className="text-sm md:text-base text-muted-foreground">Active Friends</p>
+                        {/* WebSocket connection status */}
+                        {isAuthenticated && (
+                            <span className={`text-xs flex items-center gap-1 ${getWsStatusDisplay(wsConnectionState).color}`} title={`Connection: ${wsConnectionState}`}>
+                                {(() => {
+                                    const status = getWsStatusDisplay(wsConnectionState);
+                                    const Icon = status.icon;
+                                    return <Icon className="w-3 h-3" />;
+                                })()}
+                                <span className="hidden sm:inline">{getWsStatusDisplay(wsConnectionState).label}</span>
+                            </span>
+                        )}
                         {lastUpdated && (
                             <span className="text-xs text-slate-600 hidden sm:inline-block">
                                 Updated: {lastUpdated.toLocaleTimeString()}
@@ -98,11 +123,11 @@ export default function FavoritesPage() {
                         )}
                         <button
                             onClick={() => refresh()}
-                            disabled={isRefreshing || loading}
+                            disabled={loading}
                             className="p-1.5 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
                             title="Refresh Now"
                         >
-                            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
+                            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
                         </button>
                     </div>
                 </div>
@@ -247,8 +272,8 @@ export default function FavoritesPage() {
                                     </div>
                                 )}
 
-                                {/* Separator between favorites and others */}
-                                {group.friends.length > 0 && group.otherFriends && group.otherFriends.length > 0 && (
+                                {/* Separator between favorites and others (hide for Private instances) */}
+                                {group.friends.length > 0 && group.otherFriends && group.otherFriends.length > 0 && group.id !== 'private' && group.worldName !== 'Private World' && (
                                     <div className="flex items-center gap-2 my-2 px-2">
                                         <div className="flex-1 h-px bg-white/10"></div>
                                         <span className="text-[10px] text-slate-500">Other Friends</span>
@@ -256,8 +281,8 @@ export default function FavoritesPage() {
                                     </div>
                                 )}
 
-                                {/* Non-Favorite Friends */}
-                                {group.otherFriends && group.otherFriends.length > 0 && (
+                                {/* Non-Favorite Friends (hide for Private instances) */}
+                                {group.otherFriends && group.otherFriends.length > 0 && group.id !== 'private' && group.worldName !== 'Private World' && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
                                         {group.otherFriends.map((friend) => (
                                             <Link

@@ -11,9 +11,16 @@ type Friend = {
     status: string;
     location: string;
     worldName?: string;
-    favoriteGroup?: string;  // e.g., "group_0", "group_1", etc.
-    joinedAt?: number;       // Timestamp when friend joined current instance (tracked locally)
+    favoriteGroup?: string;
+    joinedAt?: number;
     [key: string]: any;
+};
+
+type WorldInfo = {
+    id: string;
+    name: string;
+    thumbnailImageUrl?: string;
+    cachedAt: number;
 };
 
 type InstanceGroup = {
@@ -21,11 +28,11 @@ type InstanceGroup = {
     worldName: string;
     instanceType: string;
     region: string;
-    userCount: number;           // Number of favorite friends in this instance
-    instanceUserCount?: number;  // Total number of users in this instance
-    friends: Friend[];           // Favorite friends
-    otherFriends: Friend[];      // Non-favorite friends with visible locations
-    minFavoriteGroup: number;    // Minimum favorite group number (for sorting)
+    userCount: number;
+    instanceUserCount?: number;
+    friends: Friend[];
+    otherFriends: Friend[];
+    minFavoriteGroup: number;
     creatorId?: string;
     creatorName?: string;
     worldImageUrl?: string;
@@ -35,12 +42,14 @@ type InstanceGroup = {
     ownerName?: string;
 };
 
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+
 interface FriendsContextType {
     instances: InstanceGroup[];
     loading: boolean;
     isAuthenticated: boolean;
     lastUpdated: Date | null;
-    isRefreshing: boolean;
+    wsConnectionState: ConnectionState;
     refresh: () => void;
 }
 
@@ -49,20 +58,11 @@ const FriendsContext = createContext<FriendsContextType>({
     loading: true,
     isAuthenticated: false,
     lastUpdated: null,
-    isRefreshing: false,
+    wsConnectionState: 'disconnected',
     refresh: () => { },
 });
 
 // Parse instance info from location string
-// VRChat instance types:
-// - Public: wrld_xxx:instanceId
-// - Friends+: wrld_xxx:instanceId~hidden(usr_xxx)
-// - Friends: wrld_xxx:instanceId~friends(usr_xxx)
-// - Invite+: wrld_xxx:instanceId~private(usr_xxx)~canRequestInvite
-// - Invite: wrld_xxx:instanceId~private(usr_xxx)
-// - Group Public: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(public)
-// - Group: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(members)
-// - Group+: wrld_xxx:instanceId~group(grp_xxx)~groupAccessType(plus)
 const parseInstanceInfo = (location: string) => {
     if (!location || location === 'offline' || location === 'private') return null;
     const parts = location.split(':');
@@ -75,35 +75,19 @@ const parseInstanceInfo = (location: string) => {
     let creatorId: string | null = null;
     let groupId: string | null = null;
 
-    // Extract user ID (instance creator)
     const usrMatch = raw.match(/\((usr_[^)]+)\)/);
-    if (usrMatch) {
-        creatorId = usrMatch[1];
-    }
+    if (usrMatch) creatorId = usrMatch[1];
 
-    // Extract group ID
     const grpMatch = raw.match(/~group\((grp_[^)]+)\)/);
-    if (grpMatch) {
-        groupId = grpMatch[1];
-    }
+    if (grpMatch) groupId = grpMatch[1];
 
-    // Check for group instances first (they may also contain other keywords)
     if (raw.includes('~group(')) {
-        if (raw.includes('groupAccessType(public)')) {
-            type = 'Group Public';
-        } else if (raw.includes('groupAccessType(plus)')) {
-            type = 'Group+';
-        } else if (raw.includes('groupAccessType(members)')) {
-            type = 'Group';
-        } else {
-            type = 'Group';
-        }
+        if (raw.includes('groupAccessType(public)')) type = 'Group Public';
+        else if (raw.includes('groupAccessType(plus)')) type = 'Group+';
+        else if (raw.includes('groupAccessType(members)')) type = 'Group';
+        else type = 'Group';
     } else if (raw.includes('~private(')) {
-        if (raw.includes('~canRequestInvite')) {
-            type = 'Invite+';
-        } else {
-            type = 'Invite';
-        }
+        type = raw.includes('~canRequestInvite') ? 'Invite+' : 'Invite';
     } else if (raw.includes('~friends(')) {
         type = 'Friends';
     } else if (raw.includes('~hidden(')) {
@@ -118,10 +102,32 @@ const parseInstanceInfo = (location: string) => {
         else if (r === 'eu') region = 'EU';
         else if (r === 'use') region = 'US East';
         else if (r === 'usw') region = 'US West';
-        else if (r === 'us') region = 'US';
     }
 
     return { name, type, region, creatorId, groupId };
+};
+
+// Helper to add a log entry
+const addLogEntry = (type: string, user: string, detail: string, color: string) => {
+    const now = new Date();
+    const timeStr = `${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    
+    const newLog = {
+        id: Date.now() + Math.random(),
+        date: timeStr,
+        type,
+        user,
+        detail,
+        color
+    };
+
+    try {
+        const existing = JSON.parse(localStorage.getItem('vrc_logs') || '[]');
+        const updated = [newLog, ...existing].slice(0, 500);
+        localStorage.setItem('vrc_logs', JSON.stringify(updated));
+    } catch (e) {
+        console.error('Log save error', e);
+    }
 };
 
 export const FriendsProvider = ({ children }: { children: React.ReactNode }) => {
@@ -129,251 +135,208 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     const [instances, setInstances] = useState<InstanceGroup[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isRefreshing, setIsRefreshing] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const [wsConnectionState, setWsConnectionState] = useState<ConnectionState>('disconnected');
 
-    // Refs for logging diffs
-    const previousFriendsRef = useRef<Map<string, any>>(new Map());
-    const isFirstLoadRef = useRef(true);
-    
-    // Track when each friend joined their current instance (friendId -> { location, joinedAt })
+    // Refs for data management
+    const friendsDataRef = useRef<Map<string, any>>(new Map());
+    const favoriteIdsRef = useRef<Set<string>>(new Set());
+    const favoriteGroupsRef = useRef<Map<string, string>>(new Map());
     const locationTimestampsRef = useRef<Map<string, { location: string; joinedAt: number }>>(new Map());
-    const timestampsInitializedRef = useRef(false);
-    
-    // Load timestamps from localStorage on mount
+    const worldCacheRef = useRef<Map<string, WorldInfo>>(new Map());
+    const eventSourceRef = useRef<EventSource | null>(null);
+    const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const isFirstLoadRef = useRef(true);
+
+    const WORLD_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+    // Load cached data from localStorage
     useEffect(() => {
-        if (timestampsInitializedRef.current) return;
-        timestampsInitializedRef.current = true;
-        
         try {
-            const saved = localStorage.getItem('vrc_location_timestamps');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                const map = new Map<string, { location: string; joinedAt: number }>();
+            const savedTimestamps = localStorage.getItem('vrc_location_timestamps');
+            if (savedTimestamps) {
+                const parsed = JSON.parse(savedTimestamps);
                 Object.entries(parsed).forEach(([id, data]: [string, any]) => {
-                    map.set(id, data);
+                    locationTimestampsRef.current.set(id, data);
                 });
-                locationTimestampsRef.current = map;
-                console.log('[FriendsProvider] Loaded location timestamps from localStorage:', map.size);
+            }
+
+            const savedWorldCache = localStorage.getItem('vrc_world_cache');
+            if (savedWorldCache) {
+                const parsed = JSON.parse(savedWorldCache);
+                const now = Date.now();
+                Object.entries(parsed).forEach(([id, data]: [string, any]) => {
+                    if (data.cachedAt && (now - data.cachedAt) < WORLD_CACHE_TTL) {
+                        worldCacheRef.current.set(id, data as WorldInfo);
+                    }
+                });
             }
         } catch (e) {
-            console.error('[FriendsProvider] Failed to load location timestamps:', e);
+            console.error('[FriendsProvider] Failed to load cached data:', e);
         }
     }, []);
 
-    const fetchFriends = useCallback(async (isBackground = false) => {
-        if (isBackground) {
-            setIsRefreshing(true);
-        } else {
-            // Only set main loading on first load
-            if (isFirstLoadRef.current) setLoading(true);
-        }
+    // Save functions
+    const saveTimestamps = useCallback(() => {
+        try {
+            const obj: Record<string, any> = {};
+            locationTimestampsRef.current.forEach((data, id) => obj[id] = data);
+            localStorage.setItem('vrc_location_timestamps', JSON.stringify(obj));
+        } catch (e) { console.error('Failed to save timestamps:', e); }
+    }, []);
+
+    const saveWorldCache = useCallback(() => {
+        try {
+            const obj: Record<string, WorldInfo> = {};
+            worldCacheRef.current.forEach((data, id) => obj[id] = data);
+            localStorage.setItem('vrc_world_cache', JSON.stringify(obj));
+        } catch (e) { console.error('Failed to save world cache:', e); }
+    }, []);
+
+    // Fetch world info
+    const fetchWorldInfo = useCallback(async (worldId: string): Promise<WorldInfo | null> => {
+        const cached = worldCacheRef.current.get(worldId);
+        if (cached && (Date.now() - cached.cachedAt) < WORLD_CACHE_TTL) return cached;
 
         try {
-            if (typeof window === 'undefined') return;
-            // Authentication is handled via httpOnly cookies automatically
-            // No need to manually send credentials from localStorage
-            const res = await fetch('/api/friends/active', {
-                credentials: 'include' // Ensure cookies are sent
+            const res = await fetch(`/api/worlds/${worldId}`, { credentials: 'include' });
+            if (res.ok) {
+                const data = await res.json();
+                const worldInfo: WorldInfo = {
+                    id: data.id,
+                    name: data.name,
+                    thumbnailImageUrl: data.thumbnailImageUrl,
+                    cachedAt: Date.now()
+                };
+                worldCacheRef.current.set(worldId, worldInfo);
+                saveWorldCache();
+                return worldInfo;
+            }
+        } catch (e) { console.error(`Failed to fetch world ${worldId}:`, e); }
+        return null;
+    }, [saveWorldCache]);
+
+    // Rebuild instances from friendsDataRef
+    const rebuildInstances = useCallback(() => {
+        const grouped: Record<string, InstanceGroup> = {};
+        const friendMap = new Map<string, string>();
+        const now = Date.now();
+
+        friendsDataRef.current.forEach((f, id) => friendMap.set(id, f.name));
+
+        friendsDataRef.current.forEach((f) => {
+            const loc = f.location || "offline";
+            if (loc === "offline") return;
+
+            if (!grouped[loc]) {
+                const info = parseInstanceInfo(loc);
+                let ownerName = f.ownerName || undefined;
+                if (!ownerName && info?.creatorId) ownerName = friendMap.get(info.creatorId);
+
+                grouped[loc] = {
+                    id: loc,
+                    worldName: f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`),
+                    worldImageUrl: f.worldImageUrl,
+                    instanceType: f.instanceType || info?.type || "Public",
+                    region: f.isPrivate || loc === 'private' ? "" : (info?.region || "US"),
+                    userCount: 0,
+                    instanceUserCount: f.instanceUserCount,
+                    friends: [],
+                    otherFriends: [],
+                    minFavoriteGroup: 999,
+                    creatorId: info?.creatorId ?? undefined,
+                    creatorName: ownerName,
+                    groupId: f.groupId || (info?.groupId ?? undefined),
+                    groupName: f.groupName,
+                    ownerId: f.ownerId || (info?.creatorId ?? undefined),
+                    ownerName: ownerName,
+                };
+            }
+
+            const timestampData = locationTimestampsRef.current.get(f.id);
+            const friendWithTimestamp = { ...f, joinedAt: timestampData?.joinedAt || now };
+
+            if (f.isFavorite) {
+                grouped[loc].friends.push(friendWithTimestamp);
+                grouped[loc].userCount++;
+                if (f.favoriteGroup) {
+                    const groupNum = parseInt(f.favoriteGroup.replace('group_', ''), 10);
+                    if (!isNaN(groupNum) && groupNum < grouped[loc].minFavoriteGroup) {
+                        grouped[loc].minFavoriteGroup = groupNum;
+                    }
+                }
+            } else {
+                grouped[loc].otherFriends.push(friendWithTimestamp);
+            }
+        });
+
+        const sortedInstances = Object.values(grouped)
+            .filter(inst => inst.userCount > 0)
+            .sort((a, b) => {
+                const aIsHidden = a.id === 'private' || a.worldName === 'Private World';
+                const bIsHidden = b.id === 'private' || b.worldName === 'Private World';
+                if (aIsHidden && !bIsHidden) return 1;
+                if (!aIsHidden && bIsHidden) return -1;
+                if (a.minFavoriteGroup !== b.minFavoriteGroup) return a.minFavoriteGroup - b.minFavoriteGroup;
+                return b.userCount - a.userCount;
             });
 
+        setInstances(sortedInstances);
+        setLastUpdated(new Date());
+    }, []);
+
+    // Fetch initial friends data
+    const fetchFriends = useCallback(async () => {
+        try {
+            const res = await fetch('/api/friends/active', { credentials: 'include' });
             if (res.ok) {
                 const data = await res.json();
                 setIsAuthenticated(true);
 
-                // --- LOGGING LOGIC START ---
                 const currentFriendsMap = new Map();
                 if (data.friends && Array.isArray(data.friends)) {
                     data.friends.forEach((f: any) => currentFriendsMap.set(f.id, f));
                 }
 
-                if (!isFirstLoadRef.current) {
-                    const newLogs: any[] = [];
-                    const now = new Date();
-                    const timeStr = `${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
-                    // Check Online / Moved
-                    currentFriendsMap.forEach((curr, id) => {
-                        const prev = previousFriendsRef.current.get(id);
-                        if (!prev) {
-                            newLogs.push({
-                                id: Date.now() + Math.random(),
-                                date: timeStr,
-                                type: 'OnLine',
-                                user: curr.name,
-                                detail: curr.worldName || 'Online',
-                                color: 'text-green-400'
-                            });
-                        } else if (prev.location !== curr.location) {
-                            newLogs.push({
-                                id: Date.now() + Math.random(),
-                                date: timeStr,
-                                type: 'GPS', // Moved
-                                user: curr.name,
-                                detail: curr.worldName || 'Private',
-                                color: 'text-orange-400'
-                            });
-                        }
-                    });
-
-                    // Check Offline
-                    previousFriendsRef.current.forEach((prev, id) => {
-                        if (!currentFriendsMap.has(id)) {
-                            newLogs.push({
-                                id: Date.now() + Math.random(),
-                                date: timeStr,
-                                type: 'Offline',
-                                user: prev.name,
-                                detail: 'Went Offline',
-                                color: 'text-slate-500'
-                            });
-                        }
-                    });
-
-                    if (newLogs.length > 0) {
-                        try {
-                            const existing = JSON.parse(localStorage.getItem('vrc_logs') || '[]');
-                            const updated = [...newLogs, ...existing].slice(0, 500);
-                            localStorage.setItem('vrc_logs', JSON.stringify(updated));
-                        } catch (e) {
-                            console.error('Log save error', e);
-                        }
-                    }
-                }
-                previousFriendsRef.current = currentFriendsMap;
-                isFirstLoadRef.current = false;
-                // --- LOGGING LOGIC END ---
-
-                // --- LOCATION TIMESTAMP TRACKING ---
                 const now = Date.now();
-                let timestampsChanged = false;
-                
-                currentFriendsMap.forEach((friend, id) => {
+                let worldCacheChanged = false;
+
+                favoriteIdsRef.current.clear();
+                favoriteGroupsRef.current.clear();
+
+                currentFriendsMap.forEach((f, id) => {
+                    if (f.isFavorite) {
+                        favoriteIdsRef.current.add(id);
+                        if (f.favoriteGroup) favoriteGroupsRef.current.set(id, f.favoriteGroup);
+                    }
+
                     const existing = locationTimestampsRef.current.get(id);
-                    if (!existing || existing.location !== friend.location) {
-                        // New friend or location changed - record new timestamp
-                        locationTimestampsRef.current.set(id, {
-                            location: friend.location,
-                            joinedAt: now
-                        });
-                        timestampsChanged = true;
+                    if (!existing || existing.location !== f.location) {
+                        locationTimestampsRef.current.set(id, { location: f.location, joinedAt: now });
+                    }
+
+                    if (f.location?.startsWith('wrld_') && f.worldName) {
+                        const worldId = f.location.split(':')[0];
+                        const cachedWorld = worldCacheRef.current.get(worldId);
+                        if (!cachedWorld || (now - cachedWorld.cachedAt) > WORLD_CACHE_TTL) {
+                            worldCacheRef.current.set(worldId, {
+                                id: worldId,
+                                name: f.worldName,
+                                thumbnailImageUrl: f.worldImageUrl,
+                                cachedAt: now
+                            });
+                            worldCacheChanged = true;
+                        }
                     }
                 });
-                // Clean up friends who are no longer online
-                locationTimestampsRef.current.forEach((_, id) => {
-                    if (!currentFriendsMap.has(id)) {
-                        locationTimestampsRef.current.delete(id);
-                        timestampsChanged = true;
-                    }
-                });
-                
-                // Save to localStorage if changed
-                if (timestampsChanged) {
-                    try {
-                        const obj: Record<string, { location: string; joinedAt: number }> = {};
-                        locationTimestampsRef.current.forEach((data, id) => {
-                            obj[id] = data;
-                        });
-                        localStorage.setItem('vrc_location_timestamps', JSON.stringify(obj));
-                    } catch (e) {
-                        console.error('[FriendsProvider] Failed to save location timestamps:', e);
-                    }
-                }
-                // --- LOCATION TIMESTAMP TRACKING END ---
 
-                // Group friends by location
-                const grouped: Record<string, InstanceGroup> = {};
-
-                if (data.friends && Array.isArray(data.friends)) {
-                    // Create Map for quick friend lookup
-                    const friendMap = new Map<string, string>();
-                    data.friends.forEach((f: any) => friendMap.set(f.id, f.name));
-
-                    data.friends.forEach((f: any) => {
-                        const loc = f.location || "offline";
-                        if (loc === "offline") return;
-
-                        if (!grouped[loc]) {
-                            // Parse instance info from location
-                            const info = parseInstanceInfo(loc);
-                            
-                            // Get owner name - from API response or from friends map
-                            let ownerName = f.ownerName || undefined;
-                            if (!ownerName && info && info.creatorId) {
-                                ownerName = friendMap.get(info.creatorId);
-                            }
-
-                            grouped[loc] = {
-                                id: loc,
-                                worldName: f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`),
-                                worldImageUrl: f.worldImageUrl,
-                                instanceType: f.instanceType || info?.type || (f.isPrivate ? "Invite" : "Public"),
-                                region: f.isPrivate || loc === 'private' || loc.includes('private') ? "" : (info?.region || "US"),
-                                userCount: 0,
-                                instanceUserCount: f.instanceUserCount || undefined,
-                                friends: [],
-                                otherFriends: [],
-                                minFavoriteGroup: 999,  // Will be updated with actual min
-                                creatorId: info?.creatorId || undefined,
-                                creatorName: ownerName,
-                                groupId: f.groupId || info?.groupId || undefined,
-                                groupName: f.groupName || undefined,
-                                ownerId: f.ownerId || info?.creatorId || undefined,
-                                ownerName: ownerName,
-                            };
-                        }
-                        // Add joinedAt timestamp to friend
-                        const timestampData = locationTimestampsRef.current.get(f.id);
-                        const friendWithTimestamp = {
-                            ...f,
-                            joinedAt: timestampData?.joinedAt || now
-                        };
-
-                        // Separate favorite and non-favorite friends
-                        if (f.isFavorite) {
-                            grouped[loc].friends.push(friendWithTimestamp);
-                            grouped[loc].userCount++;
-                            // Track minimum favorite group number (e.g., "group_0" -> 0)
-                            if (f.favoriteGroup) {
-                                const groupNum = parseInt(f.favoriteGroup.replace('group_', ''), 10);
-                                if (!isNaN(groupNum) && groupNum < grouped[loc].minFavoriteGroup) {
-                                    grouped[loc].minFavoriteGroup = groupNum;
-                                }
-                            }
-                        } else {
-                            grouped[loc].otherFriends.push(friendWithTimestamp);
-                        }
-                    });
-                }
-
-                // Filter: Only show instances with at least one favorite friend
-                // Sort: By favorite group (ascending), then by favorite count (descending)
-                // Private instances at bottom
-                const sortedInstances = Object.values(grouped)
-                    .filter(inst => inst.userCount > 0)  // Only instances with favorites
-                    .sort((a, b) => {
-                        const aIsHidden = a.id === 'private' || a.worldName === 'Private World';
-                        const bIsHidden = b.id === 'private' || b.worldName === 'Private World';
-
-                        // Private instances at bottom
-                        if (aIsHidden && !bIsHidden) return 1;
-                        if (!aIsHidden && bIsHidden) return -1;
-
-                        // Sort by minimum favorite group number (ascending)
-                        // group_0 comes before group_1, etc.
-                        if (a.minFavoriteGroup !== b.minFavoriteGroup) {
-                            return a.minFavoriteGroup - b.minFavoriteGroup;
-                        }
-
-                        // Then sort by favorite count (descending)
-                        return b.userCount - a.userCount;
-                    });
-
-                setInstances(sortedInstances);
-                setLastUpdated(new Date());
+                friendsDataRef.current = currentFriendsMap;
+                saveTimestamps();
+                if (worldCacheChanged) saveWorldCache();
+                rebuildInstances();
+                isFirstLoadRef.current = false;
 
             } else {
-                console.log("Failed to fetch friends, likely not authenticated.");
                 setIsAuthenticated(false);
                 setInstances([]);
             }
@@ -382,20 +345,236 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             setInstances([]);
         } finally {
             setLoading(false);
-            setIsRefreshing(false);
         }
-    }, []);
+    }, [rebuildInstances, saveTimestamps, saveWorldCache]);
 
+    // Handle SSE events
+    const handleSSEEvent = useCallback(async (eventType: string, data: any) => {
+        const now = Date.now();
+
+        switch (eventType) {
+            case 'friend-online': {
+                const userId = data.userId;
+                const user = data.user;
+                const isFavorite = favoriteIdsRef.current.has(userId);
+                const favoriteGroup = favoriteGroupsRef.current.get(userId);
+
+                let worldName = data.world?.name;
+                let worldImageUrl = data.world?.thumbnailImageUrl;
+
+                if (!worldName && data.location?.startsWith('wrld_')) {
+                    const worldId = data.location.split(':')[0];
+                    const cached = worldCacheRef.current.get(worldId);
+                    if (cached) {
+                        worldName = cached.name;
+                        worldImageUrl = cached.thumbnailImageUrl;
+                    } else {
+                        fetchWorldInfo(worldId).then((info) => {
+                            if (info) {
+                                const friend = friendsDataRef.current.get(userId);
+                                if (friend?.location === data.location) {
+                                    friend.worldName = info.name;
+                                    friend.worldImageUrl = info.thumbnailImageUrl;
+                                    friendsDataRef.current.set(userId, friend);
+                                    rebuildInstances();
+                                }
+                            }
+                        });
+                    }
+                }
+
+                friendsDataRef.current.set(userId, {
+                    id: userId,
+                    name: user.displayName,
+                    status: user.status || 'active',
+                    statusMsg: user.statusDescription,
+                    icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || '',
+                    location: data.location,
+                    worldName: worldName || (data.location === 'private' ? 'Private World' : undefined),
+                    worldImageUrl,
+                    isPrivate: data.location === 'private',
+                    isFavorite,
+                    favoriteGroup,
+                });
+
+                locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
+                saveTimestamps();
+                addLogEntry('OnLine', user.displayName, worldName || 'Online', 'text-green-400');
+                rebuildInstances();
+                break;
+            }
+
+            case 'friend-offline': {
+                const friend = friendsDataRef.current.get(data.userId);
+                if (friend) addLogEntry('Offline', friend.name, 'Went Offline', 'text-slate-500');
+                friendsDataRef.current.delete(data.userId);
+                locationTimestampsRef.current.delete(data.userId);
+                saveTimestamps();
+                rebuildInstances();
+                break;
+            }
+
+            case 'friend-location': {
+                const userId = data.userId;
+                const user = data.user;
+                const existingFriend = friendsDataRef.current.get(userId);
+                const isFavorite = existingFriend?.isFavorite ?? favoriteIdsRef.current.has(userId);
+                const favoriteGroup = existingFriend?.favoriteGroup ?? favoriteGroupsRef.current.get(userId);
+
+                let worldName = data.world?.name;
+                let worldImageUrl = data.world?.thumbnailImageUrl;
+
+                if (!worldName && data.location?.startsWith('wrld_')) {
+                    const worldId = data.location.split(':')[0];
+                    const cached = worldCacheRef.current.get(worldId);
+                    if (cached) {
+                        worldName = cached.name;
+                        worldImageUrl = cached.thumbnailImageUrl;
+                    } else {
+                        fetchWorldInfo(worldId).then((info) => {
+                            if (info) {
+                                const friend = friendsDataRef.current.get(userId);
+                                if (friend?.location === data.location) {
+                                    friend.worldName = info.name;
+                                    friend.worldImageUrl = info.thumbnailImageUrl;
+                                    friendsDataRef.current.set(userId, friend);
+                                    rebuildInstances();
+                                }
+                            }
+                        });
+                    }
+                }
+
+                friendsDataRef.current.set(userId, {
+                    ...existingFriend,
+                    id: userId,
+                    name: user.displayName,
+                    status: user.status || existingFriend?.status || 'active',
+                    statusMsg: user.statusDescription || existingFriend?.statusMsg,
+                    icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || existingFriend?.icon || '',
+                    location: data.location,
+                    worldName: worldName || (data.location === 'private' ? 'Private World' : undefined),
+                    worldImageUrl,
+                    isPrivate: data.location === 'private',
+                    isFavorite,
+                    favoriteGroup,
+                });
+
+                locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
+                saveTimestamps();
+                addLogEntry('GPS', user.displayName, worldName || 'Private', 'text-orange-400');
+                rebuildInstances();
+                break;
+            }
+
+            case 'friend-update': {
+                const userId = data.userId;
+                const user = data.user;
+                const existingFriend = friendsDataRef.current.get(userId);
+
+                if (existingFriend) {
+                    friendsDataRef.current.set(userId, {
+                        ...existingFriend,
+                        name: user.displayName,
+                        status: user.status || existingFriend.status,
+                        statusMsg: user.statusDescription || existingFriend.statusMsg,
+                        icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || existingFriend.icon,
+                    });
+                    rebuildInstances();
+                }
+                break;
+            }
+        }
+    }, [rebuildInstances, saveTimestamps, fetchWorldInfo]);
+
+    // Connect to SSE
+    const connectSSE = useCallback(() => {
+        if (eventSourceRef.current) {
+            eventSourceRef.current.close();
+        }
+
+        console.log('[FriendsProvider] Connecting to SSE...');
+        setWsConnectionState('connecting');
+
+        const eventSource = new EventSource('/api/friends/stream');
+        eventSourceRef.current = eventSource;
+
+        eventSource.addEventListener('connected', (e) => {
+            console.log('[FriendsProvider] SSE connected');
+            setWsConnectionState('connected');
+        });
+
+        eventSource.addEventListener('disconnected', (e) => {
+            console.log('[FriendsProvider] SSE disconnected');
+            setWsConnectionState('disconnected');
+        });
+
+        eventSource.addEventListener('error', (e) => {
+            console.error('[FriendsProvider] SSE error');
+            setWsConnectionState('reconnecting');
+            
+            // Reconnect after delay
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = setTimeout(() => {
+                console.log('[FriendsProvider] Attempting SSE reconnect...');
+                connectSSE();
+            }, 5000);
+        });
+
+        // Friend events
+        const friendEvents = ['friend-online', 'friend-offline', 'friend-location', 'friend-update', 'friend-active'];
+        friendEvents.forEach(eventType => {
+            eventSource.addEventListener(eventType, (e: MessageEvent) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    // friend-active is similar to friend-online
+                    const normalizedType = eventType === 'friend-active' ? 'friend-online' : eventType;
+                    handleSSEEvent(normalizedType, data);
+                } catch (err) {
+                    console.error(`[FriendsProvider] Failed to parse ${eventType} event:`, err);
+                }
+            });
+        });
+
+        eventSource.onerror = () => {
+            console.error('[FriendsProvider] EventSource error');
+            eventSource.close();
+            setWsConnectionState('reconnecting');
+            
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = setTimeout(() => {
+                connectSSE();
+            }, 5000);
+        };
+
+    }, [handleSSEEvent]);
+
+    // Initialize
     useEffect(() => {
-        fetchFriends(false);
-        const interval = setInterval(() => {
-            fetchFriends(true);
-        }, 60000); // 60s
-        return () => clearInterval(interval);
-    }, [fetchFriends, pathname]);
+        fetchFriends().then(() => {
+            connectSSE();
+        });
+
+        return () => {
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+                eventSourceRef.current = null;
+            }
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+        };
+    }, [fetchFriends, connectSSE]);
 
     return (
-        <FriendsContext.Provider value={{ instances, loading, isAuthenticated, lastUpdated, isRefreshing, refresh: () => fetchFriends(true) }}>
+        <FriendsContext.Provider value={{
+            instances,
+            loading,
+            isAuthenticated,
+            lastUpdated,
+            wsConnectionState,
+            refresh: fetchFriends
+        }}>
             {children}
         </FriendsContext.Provider>
     );

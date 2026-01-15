@@ -1,38 +1,105 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VRC Social
 
-## Getting Started
+VRChatのフレンドのオンライン状況をリアルタイムで確認できるWebアプリケーション。
 
-First, run the development server:
+## 機能
+
+- お気に入りフレンドのオンライン状況をリアルタイム表示
+- フレンドがいるワールド・インスタンス情報の表示
+- フレンドのオンライン/オフライン/ワールド移動のログ記録
+- VRChat WebSocket APIによるリアルタイム更新（ポーリング不要）
+
+## 技術スタック
+
+- **フロントエンド**: Next.js 16, React, Tailwind CSS
+- **リアルタイム通信**: Server-Sent Events (SSE) + VRChat WebSocket API
+- **認証**: VRChat API (2FA対応)
+
+## アーキテクチャ
+
+```
+ブラウザ ←─ SSE ─→ Next.js Server ←─ WebSocket ─→ VRChat Pipeline
+```
+
+サーバーサイドでVRChat WebSocket APIに接続し、Server-Sent Eventsでクライアントにリアルタイム配信します。
+
+## セットアップ
+
+### 1. 依存関係のインストール
+
+```bash
+npm install
+```
+
+### 2. 開発サーバーの起動
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 でアクセスできます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. 本番ビルド
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm run start
+```
 
-## Learn More
+## デプロイ (Cloudflare Tunnel)
 
-To learn more about Next.js, take a look at the following resources:
+ローカルPCをサーバーとして、Cloudflare Tunnelで公開できます。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 1. cloudflaredのインストール
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+winget install --id Cloudflare.cloudflared -e
+```
 
-## Deploy on Vercel
+### 2. Cloudflareにログイン
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+cloudflared tunnel login
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 3. トンネルの作成
 
-https://vrcsocial.vercel.app/
+```bash
+cloudflared tunnel create vrcsocial
+```
+
+### 4. DNSの設定
+
+Cloudflareダッシュボードで、CNAMEレコードを追加:
+- **Name**: 任意のサブドメイン
+- **Target**: `<TUNNEL_ID>.cfargotunnel.com`
+
+### 5. 設定ファイルの作成
+
+`~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <TUNNEL_ID>
+credentials-file: ~/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: your-domain.example.com
+    service: http://localhost:3000
+  - service: http_status:404
+```
+
+### 6. 起動
+
+```bash
+# ターミナル1: Next.jsサーバー
+npm run start
+
+# ターミナル2: Cloudflareトンネル
+cloudflared tunnel run vrcsocial
+```
+
+## 注意事項
+
+- VRChat APIの利用規約に従ってください
+- 認証情報は安全に管理してください
+- このアプリはVRChat公式ではありません

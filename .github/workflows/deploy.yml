@@ -1,0 +1,66 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  deploy:
+    runs-on: self-hosted  # ローカルネットワーク内のランナーを使用
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy to server
+        shell: pwsh
+        run: |
+          $DeployDir = "\\pci7rtx3060\c\server\vrcsocial"
+          
+          Write-Host "Copying files to $DeployDir..."
+          robocopy . $DeployDir /MIR /XD node_modules .git /XF .gitignore .env.local deploy.ps1 /NJH /NJS /NDL /NC /NS
+          
+          Write-Host "Installing production dependencies..."
+          Set-Location $DeployDir
+          npm install --omit=dev
+
+      - name: Restart server
+        shell: pwsh
+        run: |
+          $ServerName = "pci7rtx3060"
+          $AppDir = "C:\server\vrcsocial"
+          $Port = 3000
+          
+          Invoke-Command -ComputerName $ServerName -ScriptBlock {
+            param($AppDir, $Port)
+            
+            # Stop existing process
+            $pid = netstat -ano | Select-String ":$Port\s+.*LISTENING" | ForEach-Object {
+              ($_ -split '\s+')[-1]
+            } | Select-Object -First 1
+            
+            if ($pid) {
+              Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+              Start-Sleep -Seconds 2
+            }
+            
+            # Start app
+            $env:NODE_ENV = "production"
+            Start-Process -FilePath "npm" -ArgumentList "start" -WorkingDirectory $AppDir -WindowStyle Hidden
+          } -ArgumentList $AppDir, $Port
+          
+          Write-Host "Server restarted!"

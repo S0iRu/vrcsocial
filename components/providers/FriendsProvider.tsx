@@ -46,6 +46,7 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'rec
 
 interface FriendsContextType {
     instances: InstanceGroup[];
+    offlineFriends: Friend[];
     loading: boolean;
     isAuthenticated: boolean;
     lastUpdated: Date | null;
@@ -55,6 +56,7 @@ interface FriendsContextType {
 
 const FriendsContext = createContext<FriendsContextType>({
     instances: [],
+    offlineFriends: [],
     loading: true,
     isAuthenticated: false,
     lastUpdated: null,
@@ -133,6 +135,7 @@ const addLogEntry = (type: string, user: string, detail: string, color: string) 
 export const FriendsProvider = ({ children }: { children: React.ReactNode }) => {
     const pathname = usePathname();
     const [instances, setInstances] = useState<InstanceGroup[]>([]);
+    const [offlineFriends, setOfflineFriends] = useState<Friend[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -336,9 +339,32 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 rebuildInstances();
                 isFirstLoadRef.current = false;
 
+                // Handle offline friends
+                if (data.offlineFriends && Array.isArray(data.offlineFriends)) {
+                    const transformedOffline = data.offlineFriends.map((f: any) => ({
+                        id: f.id,
+                        displayName: f.name,
+                        userIcon: f.icon,
+                        status: 'offline',
+                        location: 'offline',
+                        worldName: 'Offline',
+                        favoriteGroup: f.favoriteGroup,
+                        last_login: f.last_login,
+                        last_activity: f.last_activity,
+                    }));
+                    // Sort by favorite group
+                    transformedOffline.sort((a: any, b: any) => {
+                        const aGroup = parseInt(a.favoriteGroup?.replace('group_', '') || '999', 10);
+                        const bGroup = parseInt(b.favoriteGroup?.replace('group_', '') || '999', 10);
+                        return aGroup - bGroup;
+                    });
+                    setOfflineFriends(transformedOffline);
+                }
+
             } else {
                 setIsAuthenticated(false);
                 setInstances([]);
+                setOfflineFriends([]);
             }
         } catch (e) {
             console.error(e);
@@ -569,6 +595,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     return (
         <FriendsContext.Provider value={{
             instances,
+            offlineFriends,
             loading,
             isAuthenticated,
             lastUpdated,

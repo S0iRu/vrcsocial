@@ -12,27 +12,18 @@ export async function GET(req: NextRequest) {
 
     const cookieStore = await cookies();
     const authCookie = cookieStore.get('auth')?.value;
-    const credsCookie = cookieStore.get('vrc_creds')?.value;
-    const clientAuthHeader = req.headers.get('Authorization');
+
+    if (!authCookie) {
+        console.log('[FriendsAPI] Not authenticated. No auth cookie present.');
+        return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
 
     // Build Headers
     const headers: Record<string, string> = {
         'User-Agent': USER_AGENT,
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'Cookie': `auth=${authCookie}`
     };
-
-    if (authCookie) {
-        headers['Cookie'] = `auth=${authCookie}`;
-    } else if (clientAuthHeader) {
-        // Use client provided auth header (from localStorage)
-        headers['Authorization'] = clientAuthHeader;
-    } else if (credsCookie) {
-        headers['Authorization'] = `Basic ${credsCookie}`;
-    } else {
-
-        console.log('[FriendsAPI] Not authenticated. Cookies present:', cookieStore.getAll().map(c => c.name));
-        return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
 
 
     try {
@@ -134,6 +125,44 @@ export async function GET(req: NextRequest) {
         // Combine all friends that need processing
         const allActiveFriends = [...activeFavoriteFriends, ...activeNonFavoriteFriends];
 
+        // Batch size for API requests
+        const BATCH_SIZE = 10;
+
+        // Fetch offline favorite friends
+        const offlineFavoriteIds = new Set<string>();
+        favoriteIds.forEach(id => {
+            if (!friends.some((f: any) => f.id === id)) {
+                offlineFavoriteIds.add(id);
+            }
+        });
+
+        // Fetch offline favorites info in batches
+        const offlineFavoriteFriends: any[] = [];
+        const offlineFavoriteIdList = Array.from(offlineFavoriteIds);
+        
+        if (offlineFavoriteIdList.length > 0) {
+            console.log(`[FriendsAPI] Fetching info for ${offlineFavoriteIdList.length} offline favorite friends`);
+            
+            for (let i = 0; i < offlineFavoriteIdList.length; i += BATCH_SIZE) {
+                const batch = offlineFavoriteIdList.slice(i, i + BATCH_SIZE);
+                await Promise.all(batch.map(async (userId) => {
+                    try {
+                        const userRes = await fetch(`${API_BASE}/users/${userId}`, { headers });
+                        if (userRes.ok) {
+                            const userData = await userRes.json();
+                            offlineFavoriteFriends.push(userData);
+                        }
+                    } catch (e) {
+                        console.error(`Failed to fetch offline favorite ${userId}`);
+                    }
+                }));
+
+                if (i + BATCH_SIZE < offlineFavoriteIdList.length) {
+                    await new Promise(r => setTimeout(r, 100));
+                }
+            }
+        }
+
         // Create a map of all friends for quick lookup (for instance owner names)
         const allFriendsMap = new Map<string, string>();
         friends.forEach((f: any) => allFriendsMap.set(f.id, f.displayName));
@@ -193,7 +222,6 @@ export async function GET(req: NextRequest) {
         // Fetch world details with BATCHING to avoid 429 Rate Limits
         const worldMap = new Map<string, any>();
         const worldIdList = Array.from(worldIds);
-        const BATCH_SIZE = 10;
 
         console.log(`[FriendsAPI] Fetching info for ${worldIdList.length} unique worlds (Batch Size: ${BATCH_SIZE})`);
 
@@ -382,7 +410,36 @@ export async function GET(req: NextRequest) {
             };
         });
 
-        return NextResponse.json({ friends: simplifiedFriends });
+        // Transform offline favorite friends
+        const simplifiedOfflineFriends = offlineFavoriteFriends.map((f: any) => {
+            const favoriteGroup = favoriteGroups.get(f.id) || null;
+            return {
+                id: f.id,
+                name: f.displayName,
+                status: 'offline',
+                statusMsg: f.statusDescription,
+                icon: f.userIcon || f.profilePicOverride || f.currentAvatarThumbnailImageUrl || f.currentAvatarImageUrl || '',
+                location: 'offline',
+                worldName: 'Offline',
+                worldImageUrl: null,
+                isPrivate: false,
+                isFavorite: true,
+                favoriteGroup,
+                instanceType: 'Offline',
+                ownerId: null,
+                ownerName: null,
+                groupId: null,
+                groupName: null,
+                instanceUserCount: null,
+                last_login: f.last_login,
+                last_activity: f.last_activity,
+            };
+        });
+
+        return NextResponse.json({ 
+            friends: simplifiedFriends,
+            offlineFriends: simplifiedOfflineFriends
+        });
 
 
     } catch (error: any) {

@@ -37,7 +37,8 @@ export default function LoginPage() {
                 if (data.requiresTwoFactorAuth) {
                     setStep('2fa');
                 } else {
-                    router.push('/');
+                    // Full page reload to reinitialize FriendsProvider
+                    window.location.href = '/';
                 }
             } else if (res.status === 401 && data.requiresTwoFactorAuth) {
                 setStep('2fa');
@@ -70,7 +71,8 @@ export default function LoginPage() {
             const data = await res.json();
 
             if (res.ok) {
-                router.push('/');
+                // Full page reload to reinitialize FriendsProvider
+                window.location.href = '/';
             } else {
                 setError(data.error || 'Verification failed');
                 if (data.details) {

@@ -171,16 +171,6 @@ export async function POST(req: NextRequest) {
             }
         });
 
-        // Also save credentials as a backup (useful if 'auth' cookie expires or is lost)
-        // Store credentials securely in httpOnly cookie (not sent to client JS)
-        response.cookies.set('vrc_creds', credentials, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            path: '/',
-            sameSite: 'strict',
-            maxAge: 60 * 60 * 24 * 7 // 7 days
-        });
-
         // Preserve existing twoFactorAuth cookie if we have it and VRChat didn't send a new one
         if (existingTwoFactorAuth && !cookieStrings.some(c => c.toLowerCase().startsWith('twofactorauth='))) {
             console.log('[Login] Preserving existing twoFactorAuth cookie');

@@ -87,7 +87,7 @@ const getWsStatusDisplay = (state: ConnectionState) => {
 
 export default function FavoritesPage() {
     const router = useRouter();
-    const { instances, loading, isAuthenticated, lastUpdated, wsConnectionState, refresh } = useFriends();
+    const { instances, offlineFriends, loading, isAuthenticated, lastUpdated, wsConnectionState, refresh } = useFriends();
     
     // Force re-render every second to update duration display
     const [, setTick] = useState(0);
@@ -147,7 +147,7 @@ export default function FavoritesPage() {
                     <Loader2 className="w-8 h-8 md:w-10 md:h-10 animate-spin text-indigo-500" />
                     <p className="text-sm md:text-base animate-pulse">Checking friends location...</p>
                 </div>
-            ) : !isAuthenticated || instances.length === 0 ? (
+            ) : !isAuthenticated || (instances.length === 0 && offlineFriends.length === 0) ? (
                 <div className="glass-card rounded-xl p-8 md:p-12 text-center">
                     <div className="w-16 h-16 md:w-20 md:h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-6">
                         <Users className="w-8 h-8 md:w-10 md:h-10 text-indigo-400" />
@@ -168,164 +168,209 @@ export default function FavoritesPage() {
                     )}
                 </div>
             ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-                    {instances.map((group) => (
-                        <div key={group.id} className="glass-card rounded-xl overflow-hidden group hover:border-indigo-500/30 transition-all duration-300">
-                            {/* Instance Header */}
-                            <div className="p-4 md:p-5 border-b border-white/5 bg-slate-800/20">
-                                <div className="flex items-start justify-between gap-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 md:w-12 md:h-12 bg-indigo-500/20 rounded-lg flex items-center justify-center shrink-0 overflow-hidden relative">
-                                            {group.worldImageUrl ? (
-                                                <img src={group.worldImageUrl} alt={group.worldName} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <Globe className="w-5 h-5 md:w-6 md:h-6 text-indigo-400" />
-                                            )}
-                                        </div>
-                                        <div>
-                                            <h3 className="font-bold text-white text-base md:text-lg line-clamp-1 group-hover:text-indigo-400 transition-colors">
-                                                {group.worldName}
-                                            </h3>
-                                            <div className="flex flex-wrap items-center gap-2 mt-1">
-                                                <span className={`text-[10px] md:text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 border border-white/10 ${
-                                                    group.instanceType === 'Invite' || group.instanceType === 'Invite+' ? 'text-rose-400 border-rose-500/30' :
-                                                    group.instanceType === 'Friends+' || group.instanceType === 'Friends' ? 'text-orange-400 border-orange-500/30' :
-                                                    group.instanceType.startsWith('Group') ? 'text-cyan-400 border-cyan-500/30' :
-                                                    'text-green-400 border-green-500/30'
-                                                }`}>
-                                                    {group.instanceType}
-                                                </span>
-                                                {group.region && (
-                                                    <span className="text-[10px] md:text-xs text-slate-500 font-mono">
-                                                        {group.region}
-                                                    </span>
-                                                )}
-                                                {group.groupName ? (
-                                                    <span className="text-[10px] md:text-xs text-cyan-300 bg-cyan-500/10 px-1.5 rounded flex items-center gap-1">
-                                                        Group: {group.groupName}
-                                                    </span>
-                                                ) : group.ownerName ? (
-                                                    <span className="text-[10px] md:text-xs text-indigo-300 bg-indigo-500/10 px-1.5 rounded flex items-center gap-1">
-                                                        <User className="w-3 h-3" /> Host: {group.ownerName}
-                                                    </span>
-                                                ) : null}
-                                                {!group.worldName.includes("Private") && group.id !== 'private' && (
-                                                    <span className="text-[10px] md:text-xs text-slate-600 font-mono truncate max-w-[100px]">
-                                                        #{group.id.split(':')[1]?.split('~')[0]}
-                                                    </span>
-                                                )}
+                <>
+                    {/* Online Instances */}
+                    {instances.length > 0 && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                            {instances.map((group) => (
+                                <div key={group.id} className="glass-card rounded-xl overflow-hidden group hover:border-indigo-500/30 transition-all duration-300">
+                                    {/* Instance Header */}
+                                    <div className="p-4 md:p-5 border-b border-white/5 bg-slate-800/20">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 md:w-12 md:h-12 bg-indigo-500/20 rounded-lg flex items-center justify-center shrink-0 overflow-hidden relative">
+                                                    {group.worldImageUrl ? (
+                                                        <img src={group.worldImageUrl} alt={group.worldName} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <Globe className="w-5 h-5 md:w-6 md:h-6 text-indigo-400" />
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-white text-base md:text-lg line-clamp-1 group-hover:text-indigo-400 transition-colors">
+                                                        {group.worldName}
+                                                    </h3>
+                                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                        <span className={`text-[10px] md:text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 border border-white/10 ${
+                                                            group.instanceType === 'Invite' || group.instanceType === 'Invite+' ? 'text-rose-400 border-rose-500/30' :
+                                                            group.instanceType === 'Friends+' || group.instanceType === 'Friends' ? 'text-orange-400 border-orange-500/30' :
+                                                            group.instanceType.startsWith('Group') ? 'text-cyan-400 border-cyan-500/30' :
+                                                            'text-green-400 border-green-500/30'
+                                                        }`}>
+                                                            {group.instanceType}
+                                                        </span>
+                                                        {group.region && (
+                                                            <span className="text-[10px] md:text-xs text-slate-500 font-mono">
+                                                                {group.region}
+                                                            </span>
+                                                        )}
+                                                        {group.groupName ? (
+                                                            <span className="text-[10px] md:text-xs text-cyan-300 bg-cyan-500/10 px-1.5 rounded flex items-center gap-1">
+                                                                Group: {group.groupName}
+                                                            </span>
+                                                        ) : group.ownerName ? (
+                                                            <span className="text-[10px] md:text-xs text-indigo-300 bg-indigo-500/10 px-1.5 rounded flex items-center gap-1">
+                                                                <User className="w-3 h-3" /> Host: {group.ownerName}
+                                                            </span>
+                                                        ) : null}
+                                                        {!group.worldName.includes("Private") && group.id !== 'private' && (
+                                                            <span className="text-[10px] md:text-xs text-slate-600 font-mono truncate max-w-[100px]">
+                                                                #{group.id.split(':')[1]?.split('~')[0]}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
+                                            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg text-xs md:text-sm font-medium text-white shrink-0" title={`${group.userCount} favorites / ${group.instanceUserCount || '?'} total`}>
+                                                <Users className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400" />
+                                                {group.instanceUserCount || group.userCount}
+                                                {group.instanceUserCount && group.instanceUserCount !== group.userCount && (
+                                                    <span className="text-slate-400 text-[10px] md:text-xs">({group.userCount}★)</span>
+                                                )}
+                                            </span>
                                         </div>
                                     </div>
-                                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg text-xs md:text-sm font-medium text-white shrink-0" title={`${group.userCount} favorites / ${group.instanceUserCount || '?'} total`}>
-                                        <Users className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400" />
-                                        {group.instanceUserCount || group.userCount}
-                                        {group.instanceUserCount && group.instanceUserCount !== group.userCount && (
-                                            <span className="text-slate-400 text-[10px] md:text-xs">({group.userCount}★)</span>
+
+                                    {/* Friends List */}
+                                    <div className="p-2">
+                                        {/* Favorite Friends */}
+                                        {group.friends.length > 0 && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
+                                                {group.friends.map((friend) => (
+                                                    <Link
+                                                        key={friend.id}
+                                                        href={`/friends/${friend.id}`}
+                                                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group/friend"
+                                                    >
+                                                        <div className="relative">
+                                                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-yellow-500/30 group-hover/friend:ring-indigo-500/50 transition-all">
+                                                                {friend.icon ? (
+                                                                    <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
+                                                                )}
+                                                            </div>
+                                                            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <p className="text-xs md:text-sm font-medium text-slate-200 group-hover/friend:text-white truncate flex items-center gap-1">
+                                                                    {friend.name}
+                                                                    <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />
+                                                                </p>
+                                                                {friend.joinedAt && (
+                                                                    <span className="text-[10px] text-slate-500 flex items-center gap-0.5 shrink-0">
+                                                                        <Clock className="w-2.5 h-2.5" />
+                                                                        {formatDuration(friend.joinedAt)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {friend.statusMsg && (
+                                                                <p className="text-[10px] md:text-xs text-slate-500 truncate mt-0.5">
+                                                                    {friend.statusMsg}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </Link>
+                                                ))}
+                                            </div>
                                         )}
-                                    </span>
+
+                                        {/* Separator between favorites and others (hide for Private instances) */}
+                                        {group.friends.length > 0 && group.otherFriends && group.otherFriends.length > 0 && group.id !== 'private' && group.worldName !== 'Private World' && (
+                                            <div className="flex items-center gap-2 my-2 px-2">
+                                                <div className="flex-1 h-px bg-white/10"></div>
+                                                <span className="text-[10px] text-slate-500">Other Friends</span>
+                                                <div className="flex-1 h-px bg-white/10"></div>
+                                            </div>
+                                        )}
+
+                                        {/* Non-Favorite Friends (hide for Private instances) */}
+                                        {group.otherFriends && group.otherFriends.length > 0 && group.id !== 'private' && group.worldName !== 'Private World' && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
+                                                {group.otherFriends.map((friend) => (
+                                                    <Link
+                                                        key={friend.id}
+                                                        href={`/friends/${friend.id}`}
+                                                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group/friend opacity-70 hover:opacity-100"
+                                                    >
+                                                        <div className="relative">
+                                                            <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-transparent group-hover/friend:ring-slate-500/50 transition-all">
+                                                                {friend.icon ? (
+                                                                    <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
+                                                                )}
+                                                            </div>
+                                                            <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <p className="text-xs md:text-sm font-medium text-slate-400 group-hover/friend:text-slate-200 truncate">
+                                                                    {friend.name}
+                                                                </p>
+                                                                {friend.joinedAt && (
+                                                                    <span className="text-[10px] text-slate-600 flex items-center gap-0.5 shrink-0">
+                                                                        <Clock className="w-2.5 h-2.5" />
+                                                                        {formatDuration(friend.joinedAt)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {friend.statusMsg && (
+                                                                <p className="text-[10px] md:text-xs text-slate-600 truncate mt-0.5">
+                                                                    {friend.statusMsg}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Offline Favorites Section */}
+                    {offlineFriends.length > 0 && (
+                        <div className="mt-8">
+                            <div className="flex items-center gap-3 mb-4 px-1">
+                                <div className="flex-1 h-px bg-white/10"></div>
+                                <h3 className="text-sm font-medium text-slate-500 flex items-center gap-2">
+                                    <WifiOff className="w-4 h-4" />
+                                    Offline Favorites ({offlineFriends.length})
+                                </h3>
+                                <div className="flex-1 h-px bg-white/10"></div>
+                            </div>
+                            <div className="glass-card rounded-xl p-3 md:p-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 md:gap-3">
+                                    {offlineFriends.map((friend: any) => (
+                                        <Link
+                                            key={friend.id}
+                                            href={`/friends/${friend.id}`}
+                                            className="flex flex-col items-center p-2 rounded-lg hover:bg-white/5 transition-colors group/friend opacity-60 hover:opacity-100"
+                                        >
+                                            <div className="relative mb-2">
+                                                <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-slate-700 overflow-hidden ring-2 ring-slate-600/30 group-hover/friend:ring-slate-500/50 transition-all">
+                                                    {friend.userIcon ? (
+                                                        <img src={friend.userIcon} alt={friend.displayName} className="w-full h-full object-cover grayscale" />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">IMG</div>
+                                                    )}
+                                                </div>
+                                                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-slate-500 border-2 border-[#1a1f2e] rounded-full"></div>
+                                            </div>
+                                            <p className="text-[10px] md:text-xs font-medium text-slate-500 group-hover/friend:text-slate-300 truncate max-w-full text-center flex items-center gap-1">
+                                                {friend.displayName}
+                                                <Star className="w-2.5 h-2.5 text-yellow-600 fill-yellow-600 shrink-0" />
+                                            </p>
+                                        </Link>
+                                    ))}
                                 </div>
                             </div>
-
-                            {/* Friends List */}
-                            <div className="p-2">
-                                {/* Favorite Friends */}
-                                {group.friends.length > 0 && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
-                                        {group.friends.map((friend) => (
-                                            <Link
-                                                key={friend.id}
-                                                href={`/friends/${friend.id}`}
-                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group/friend"
-                                            >
-                                                <div className="relative">
-                                                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-yellow-500/30 group-hover/friend:ring-indigo-500/50 transition-all">
-                                                        {friend.icon ? (
-                                                            <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
-                                                        )}
-                                                    </div>
-                                                    <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <p className="text-xs md:text-sm font-medium text-slate-200 group-hover/friend:text-white truncate flex items-center gap-1">
-                                                            {friend.name}
-                                                            <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />
-                                                        </p>
-                                                        {friend.joinedAt && (
-                                                            <span className="text-[10px] text-slate-500 flex items-center gap-0.5 shrink-0">
-                                                                <Clock className="w-2.5 h-2.5" />
-                                                                {formatDuration(friend.joinedAt)}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    {friend.statusMsg && (
-                                                        <p className="text-[10px] md:text-xs text-slate-500 truncate mt-0.5">
-                                                            {friend.statusMsg}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </Link>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {/* Separator between favorites and others (hide for Private instances) */}
-                                {group.friends.length > 0 && group.otherFriends && group.otherFriends.length > 0 && group.id !== 'private' && group.worldName !== 'Private World' && (
-                                    <div className="flex items-center gap-2 my-2 px-2">
-                                        <div className="flex-1 h-px bg-white/10"></div>
-                                        <span className="text-[10px] text-slate-500">Other Friends</span>
-                                        <div className="flex-1 h-px bg-white/10"></div>
-                                    </div>
-                                )}
-
-                                {/* Non-Favorite Friends (hide for Private instances) */}
-                                {group.otherFriends && group.otherFriends.length > 0 && group.id !== 'private' && group.worldName !== 'Private World' && (
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2">
-                                        {group.otherFriends.map((friend) => (
-                                            <Link
-                                                key={friend.id}
-                                                href={`/friends/${friend.id}`}
-                                                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group/friend opacity-70 hover:opacity-100"
-                                            >
-                                                <div className="relative">
-                                                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-transparent group-hover/friend:ring-slate-500/50 transition-all">
-                                                        {friend.icon ? (
-                                                            <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
-                                                        )}
-                                                    </div>
-                                                    <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 md:w-3 md:h-3 ${getStatusColor(friend.status)} border-2 border-[#1a1f2e] rounded-full`}></div>
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <p className="text-xs md:text-sm font-medium text-slate-400 group-hover/friend:text-slate-200 truncate">
-                                                            {friend.name}
-                                                        </p>
-                                                        {friend.joinedAt && (
-                                                            <span className="text-[10px] text-slate-600 flex items-center gap-0.5 shrink-0">
-                                                                <Clock className="w-2.5 h-2.5" />
-                                                                {formatDuration(friend.joinedAt)}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    {friend.statusMsg && (
-                                                        <p className="text-[10px] md:text-xs text-slate-600 truncate mt-0.5">
-                                                            {friend.statusMsg}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </Link>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
                         </div>
-                    ))}
-                </div>
+                    )}
+                </>
             )}
         </div>
     );

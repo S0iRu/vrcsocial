@@ -300,14 +300,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 // Private/unknown location goes last
                 if (aIsHidden && !bIsHidden) return 1;
                 if (!aIsHidden && bIsHidden) return -1;
-                // For known locations: sort by longest stay duration (earliest joinedAt first)
+                // For known locations: sort by longest stay duration of FAVORITE friends (earliest joinedAt first)
                 if (!aIsHidden && !bIsHidden) {
-                    const getAllJoinTimes = (inst: typeof a) => {
-                        const times = [...inst.friends, ...inst.otherFriends].map(f => f.joinedAt || now);
+                    const getOldestFavoriteJoinTime = (inst: typeof a) => {
+                        const times = inst.friends.map(f => f.joinedAt || now);
                         return times.length > 0 ? Math.min(...times) : now;
                     };
-                    const aOldestJoin = getAllJoinTimes(a);
-                    const bOldestJoin = getAllJoinTimes(b);
+                    const aOldestJoin = getOldestFavoriteJoinTime(a);
+                    const bOldestJoin = getOldestFavoriteJoinTime(b);
                     if (aOldestJoin !== bOldestJoin) return aOldestJoin - bOldestJoin;
                 }
                 // Fallback: favorite group, then user count
@@ -370,27 +370,50 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 rebuildInstances();
                 isFirstLoadRef.current = false;
 
-                // Handle offline friends
+                // Handle offline friends (from API offlineFriends + friends with location: "offline")
+                const allOfflineFavorites: any[] = [];
+                
+                // Add friends from offlineFriends array (truly offline)
                 if (data.offlineFriends && Array.isArray(data.offlineFriends)) {
-                    const transformedOffline = data.offlineFriends.map((f: any) => ({
-                        id: f.id,
-                        displayName: f.name,
-                        userIcon: f.icon,
-                        status: 'offline',
-                        location: 'offline',
-                        worldName: 'Offline',
-                        favoriteGroup: f.favoriteGroup,
-                        last_login: f.last_login,
-                        last_activity: f.last_activity,
-                    }));
-                    // Sort by favorite group
-                    transformedOffline.sort((a: any, b: any) => {
-                        const aGroup = parseInt(a.favoriteGroup?.replace('group_', '') || '999', 10);
-                        const bGroup = parseInt(b.favoriteGroup?.replace('group_', '') || '999', 10);
-                        return aGroup - bGroup;
+                    data.offlineFriends.forEach((f: any) => {
+                        allOfflineFavorites.push({
+                            id: f.id,
+                            displayName: f.name,
+                            userIcon: f.icon,
+                            status: f.status || 'offline',
+                            location: 'offline',
+                            worldName: 'Offline',
+                            favoriteGroup: f.favoriteGroup,
+                            last_login: f.last_login,
+                            last_activity: f.last_activity,
+                        });
                     });
-                    setOfflineFriends(transformedOffline);
                 }
+                
+                // Add favorite friends with location: "offline" from friends array (Active/web status)
+                if (data.friends && Array.isArray(data.friends)) {
+                    data.friends.forEach((f: any) => {
+                        if (f.isFavorite && f.location === 'offline') {
+                            allOfflineFavorites.push({
+                                id: f.id,
+                                displayName: f.name,
+                                userIcon: f.icon,
+                                status: f.status || 'active',
+                                location: 'offline',
+                                worldName: 'Offline',
+                                favoriteGroup: f.favoriteGroup,
+                            });
+                        }
+                    });
+                }
+                
+                // Sort by favorite group
+                allOfflineFavorites.sort((a: any, b: any) => {
+                    const aGroup = parseInt(a.favoriteGroup?.replace('group_', '') || '999', 10);
+                    const bGroup = parseInt(b.favoriteGroup?.replace('group_', '') || '999', 10);
+                    return aGroup - bGroup;
+                });
+                setOfflineFriends(allOfflineFavorites);
 
             } else {
                 setIsAuthenticated(false);

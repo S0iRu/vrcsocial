@@ -297,8 +297,20 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             .sort((a, b) => {
                 const aIsHidden = a.id === 'private' || a.worldName === 'Private World';
                 const bIsHidden = b.id === 'private' || b.worldName === 'Private World';
+                // Private/unknown location goes last
                 if (aIsHidden && !bIsHidden) return 1;
                 if (!aIsHidden && bIsHidden) return -1;
+                // For known locations: sort by longest stay duration (earliest joinedAt first)
+                if (!aIsHidden && !bIsHidden) {
+                    const getAllJoinTimes = (inst: typeof a) => {
+                        const times = [...inst.friends, ...inst.otherFriends].map(f => f.joinedAt || now);
+                        return times.length > 0 ? Math.min(...times) : now;
+                    };
+                    const aOldestJoin = getAllJoinTimes(a);
+                    const bOldestJoin = getAllJoinTimes(b);
+                    if (aOldestJoin !== bOldestJoin) return aOldestJoin - bOldestJoin;
+                }
+                // Fallback: favorite group, then user count
                 if (a.minFavoriteGroup !== b.minFavoriteGroup) return a.minFavoriteGroup - b.minFavoriteGroup;
                 return b.userCount - a.userCount;
             });

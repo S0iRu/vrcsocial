@@ -273,6 +273,25 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             }
         });
 
+        // Sort friends within each instance: owner first, then by stay duration (longest first)
+        Object.values(grouped).forEach(inst => {
+            const sortFriends = (friends: typeof inst.friends) => {
+                return friends.sort((a, b) => {
+                    // Owner comes first
+                    const aIsOwner = inst.ownerId && a.id === inst.ownerId;
+                    const bIsOwner = inst.ownerId && b.id === inst.ownerId;
+                    if (aIsOwner && !bIsOwner) return -1;
+                    if (!aIsOwner && bIsOwner) return 1;
+                    // Then sort by stay duration (longer stay = smaller joinedAt = first)
+                    const aJoined = a.joinedAt || now;
+                    const bJoined = b.joinedAt || now;
+                    return aJoined - bJoined;
+                });
+            };
+            inst.friends = sortFriends(inst.friends);
+            inst.otherFriends = sortFriends(inst.otherFriends);
+        });
+
         const sortedInstances = Object.values(grouped)
             .filter(inst => inst.userCount > 0)
             .sort((a, b) => {

@@ -258,8 +258,8 @@ export default function FavoritesPage() {
                                                                     <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />
                                                                 </p>
                                                                 {friend.joinedAt && (
-                                                                    <span className="text-[10px] text-slate-500 flex items-center gap-0.5 shrink-0">
-                                                                        <Clock className="w-2.5 h-2.5" />
+                                                                    <span className="text-xs md:text-sm text-slate-400 flex items-center gap-1 shrink-0 font-mono">
+                                                                        <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
                                                                         {formatDuration(friend.joinedAt)}
                                                                     </span>
                                                                 )}
@@ -309,8 +309,8 @@ export default function FavoritesPage() {
                                                                     {friend.name}
                                                                 </p>
                                                                 {friend.joinedAt && (
-                                                                    <span className="text-[10px] text-slate-600 flex items-center gap-0.5 shrink-0">
-                                                                        <Clock className="w-2.5 h-2.5" />
+                                                                    <span className="text-xs md:text-sm text-slate-500 flex items-center gap-1 shrink-0 font-mono">
+                                                                        <Clock className="w-3 h-3 md:w-3.5 md:h-3.5" />
                                                                         {formatDuration(friend.joinedAt)}
                                                                     </span>
                                                                 )}
@@ -331,7 +331,7 @@ export default function FavoritesPage() {
                         </div>
                     )}
 
-                    {/* Offline Favorites Section */}
+                    {/* Offline Favorites Section - Grouped by favorite group */}
                     {offlineFriends.length > 0 && (
                         <div className="mt-8">
                             <div className="flex items-center gap-3 mb-4 px-1">
@@ -342,31 +342,58 @@ export default function FavoritesPage() {
                                 </h3>
                                 <div className="flex-1 h-px bg-white/10"></div>
                             </div>
-                            <div className="glass-card rounded-xl p-3 md:p-4">
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 md:gap-3">
-                                    {offlineFriends.map((friend: any) => (
-                                        <Link
-                                            key={friend.id}
-                                            href={`/friends/${friend.id}`}
-                                            className="flex flex-col items-center p-2 rounded-lg hover:bg-white/5 transition-colors group/friend opacity-60 hover:opacity-100"
-                                        >
-                                            <div className="relative mb-2">
-                                                <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-slate-700 overflow-hidden ring-2 ring-slate-600/30 group-hover/friend:ring-slate-500/50 transition-all">
-                                                    {friend.userIcon ? (
-                                                        <img src={friend.userIcon} alt={friend.displayName} className="w-full h-full object-cover grayscale" />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">IMG</div>
-                                                    )}
-                                                </div>
-                                                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-slate-500 border-2 border-[#1a1f2e] rounded-full"></div>
+                            <div className="space-y-4">
+                                {(() => {
+                                    // Group offline friends by favorite group
+                                    const grouped = offlineFriends.reduce((acc: Record<string, any[]>, friend: any) => {
+                                        const group = friend.favoriteGroup || 'group_unknown';
+                                        if (!acc[group]) acc[group] = [];
+                                        acc[group].push(friend);
+                                        return acc;
+                                    }, {});
+                                    
+                                    // Sort groups by group number
+                                    const sortedGroups = Object.entries(grouped).sort(([a], [b]) => {
+                                        const aNum = a.startsWith('group_') ? parseInt(a.replace('group_', ''), 10) : 999;
+                                        const bNum = b.startsWith('group_') ? parseInt(b.replace('group_', ''), 10) : 999;
+                                        return aNum - bNum;
+                                    });
+                                    
+                                    return sortedGroups.map(([groupName, friends]) => (
+                                        <div key={groupName} className="glass-card rounded-xl p-3 md:p-4">
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <Star className="w-4 h-4 text-yellow-600 fill-yellow-600" />
+                                                <span className="text-xs font-medium text-slate-400">
+                                                    Group {parseInt(groupName.replace('group_', ''), 10) + 1 || '?'}
+                                                </span>
+                                                <span className="text-xs text-slate-600">({(friends as any[]).length})</span>
                                             </div>
-                                            <p className="text-[10px] md:text-xs font-medium text-slate-500 group-hover/friend:text-slate-300 truncate max-w-full text-center flex items-center gap-1">
-                                                {friend.displayName}
-                                                <Star className="w-2.5 h-2.5 text-yellow-600 fill-yellow-600 shrink-0" />
-                                            </p>
-                                        </Link>
-                                    ))}
-                                </div>
+                                            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
+                                                {(friends as any[]).map((friend: any) => (
+                                                    <Link
+                                                        key={friend.id}
+                                                        href={`/friends/${friend.id}`}
+                                                        className="flex flex-col items-center p-2 rounded-lg hover:bg-white/5 transition-colors group/friend opacity-60 hover:opacity-100"
+                                                    >
+                                                        <div className="relative mb-2">
+                                                            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-slate-700 overflow-hidden ring-2 ring-slate-600/30 group-hover/friend:ring-slate-500/50 transition-all">
+                                                                {friend.userIcon ? (
+                                                                    <img src={friend.userIcon} alt={friend.displayName} className="w-full h-full object-cover grayscale" />
+                                                                ) : (
+                                                                    <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">IMG</div>
+                                                                )}
+                                                            </div>
+                                                            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-slate-500 border-2 border-[#1a1f2e] rounded-full"></div>
+                                                        </div>
+                                                        <p className="text-[10px] font-medium text-slate-500 group-hover/friend:text-slate-300 truncate max-w-full text-center">
+                                                            {friend.displayName}
+                                                        </p>
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ));
+                                })()}
                             </div>
                         </div>
                     )}

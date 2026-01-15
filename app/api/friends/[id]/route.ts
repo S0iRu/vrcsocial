@@ -1,32 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
 const API_BASE = 'https://api.vrchat.cloud/api/1';
 const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
-// Helper to build auth headers
+// Helper to build auth headers (only uses session cookies, no stored credentials)
 async function getAuthHeaders(): Promise<Record<string, string> | null> {
     const cookieStore = await cookies();
     const authCookie = cookieStore.get('auth')?.value;
     const twoFactorCookie = cookieStore.get('twoFactorAuth')?.value;
-    const credsCookie = cookieStore.get('vrc_creds')?.value;
+
+    // Only proceed if we have a valid auth cookie (no credential storage)
+    if (!authCookie) {
+        return null;
+    }
 
     const headers: Record<string, string> = {
         'User-Agent': USER_AGENT,
         'Accept': 'application/json'
     };
 
-    if (authCookie) {
-        let cookieStr = `auth=${authCookie}`;
-        if (twoFactorCookie) cookieStr += `; twoFactorAuth=${twoFactorCookie}`;
-        headers['Cookie'] = cookieStr;
-    } else if (credsCookie) {
-        headers['Authorization'] = `Basic ${credsCookie}`;
-    } else {
-        return null;
-    }
+    let cookieStr = `auth=${authCookie}`;
+    if (twoFactorCookie) cookieStr += `; twoFactorAuth=${twoFactorCookie}`;
+    headers['Cookie'] = cookieStr;
 
     return headers;
 }
@@ -131,7 +130,18 @@ export async function GET(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    // Rate limiting check
+    const rateCheck = checkRateLimit(req, 'friendDetail');
+    if (rateCheck.limited) {
+        return rateLimitResponse(rateCheck.resetIn);
+    }
+
     const { id } = await params;
+
+    // Input validation: User ID must match VRChat format
+    if (!id || typeof id !== 'string' || !id.startsWith('usr_') || id.length > 50) {
+        return NextResponse.json({ error: 'Invalid user ID format' }, { status: 400 });
+    }
 
     const headers = await getAuthHeaders();
     if (!headers) {

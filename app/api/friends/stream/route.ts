@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import WebSocket from 'ws';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -20,6 +21,21 @@ interface VRChatWebSocketMessage {
  * and forwards real-time friend events to the client.
  */
 export async function GET(req: NextRequest) {
+    // Rate limiting check for SSE connections
+    const rateCheck = checkRateLimit(req, 'stream');
+    if (rateCheck.limited) {
+        return new Response(JSON.stringify({ 
+            error: 'Too many requests',
+            retryAfter: Math.ceil(rateCheck.resetIn / 1000)
+        }), {
+            status: 429,
+            headers: { 
+                'Content-Type': 'application/json',
+                'Retry-After': String(Math.ceil(rateCheck.resetIn / 1000))
+            }
+        });
+    }
+
     const cookieStore = await cookies();
     const authCookie = cookieStore.get('auth')?.value;
 

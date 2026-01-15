@@ -608,8 +608,30 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         }
     }, [rebuildInstances, saveTimestamps, fetchWorldInfo]);
 
+    // Track authentication state for SSE management (ref to avoid stale closures)
+    const isAuthenticatedRef = useRef(false);
+
+    // Disconnect SSE
+    const disconnectSSE = useCallback(() => {
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+        }
+        if (eventSourceRef.current) {
+            eventSourceRef.current.close();
+            eventSourceRef.current = null;
+        }
+        setWsConnectionState('disconnected');
+    }, []);
+
     // Connect to SSE
     const connectSSE = useCallback(() => {
+        // Don't connect if not authenticated (use ref for latest value)
+        if (!isAuthenticatedRef.current) {
+            console.log('[FriendsProvider] Not authenticated, skipping SSE connection');
+            return;
+        }
+
         if (eventSourceRef.current) {
             eventSourceRef.current.close();
         }
@@ -631,14 +653,21 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         });
 
         eventSource.addEventListener('error', (e) => {
-            console.error('[FriendsProvider] SSE error');
+            // Don't reconnect if we're logged out
+            if (!isAuthenticatedRef.current) {
+                disconnectSSE();
+                return;
+            }
+            console.log('[FriendsProvider] SSE error, will reconnect...');
             setWsConnectionState('reconnecting');
             
             // Reconnect after delay
             if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
             reconnectTimeoutRef.current = setTimeout(() => {
-                console.log('[FriendsProvider] Attempting SSE reconnect...');
-                connectSSE();
+                if (isAuthenticatedRef.current) {
+                    console.log('[FriendsProvider] Attempting SSE reconnect...');
+                    connectSSE();
+                }
             }, 5000);
         });
 
@@ -658,34 +687,49 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         });
 
         eventSource.onerror = () => {
-            console.error('[FriendsProvider] EventSource error');
+            // Don't reconnect if not authenticated (user logged out)
+            if (!isAuthenticatedRef.current) {
+                disconnectSSE();
+                return;
+            }
+            console.log('[FriendsProvider] EventSource error, reconnecting...');
             eventSource.close();
             setWsConnectionState('reconnecting');
             
             if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
             reconnectTimeoutRef.current = setTimeout(() => {
-                connectSSE();
+                if (isAuthenticatedRef.current) {
+                    connectSSE();
+                }
             }, 5000);
         };
 
-    }, [handleSSEEvent]);
+    }, [handleSSEEvent, disconnectSSE]);
+
+    // Update auth ref when state changes and manage SSE connection
+    useEffect(() => {
+        isAuthenticatedRef.current = isAuthenticated;
+        
+        // Disconnect SSE when user logs out
+        if (!isAuthenticated && eventSourceRef.current) {
+            console.log('[FriendsProvider] User logged out, disconnecting SSE');
+            disconnectSSE();
+        }
+    }, [isAuthenticated, disconnectSSE]);
 
     // Initialize
     useEffect(() => {
         fetchFriends().then(() => {
-            connectSSE();
+            // Only connect SSE if authenticated after fetch
+            if (isAuthenticatedRef.current) {
+                connectSSE();
+            }
         });
 
         return () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-                eventSourceRef.current = null;
-            }
-            if (reconnectTimeoutRef.current) {
-                clearTimeout(reconnectTimeoutRef.current);
-            }
+            disconnectSSE();
         };
-    }, [fetchFriends, connectSSE]);
+    }, [fetchFriends, connectSSE, disconnectSSE]);
 
     return (
         <FriendsContext.Provider value={{

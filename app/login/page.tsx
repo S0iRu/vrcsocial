@@ -183,9 +183,20 @@ export default function LoginPage() {
                                 <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
                                 <input
                                     type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    autoComplete="one-time-code"
                                     value={code}
-                                    onChange={(e) => setCode(e.target.value)}
+                                    onChange={(e) => {
+                                        // Convert full-width numbers to half-width, then filter non-numeric
+                                        const halfWidth = e.target.value.replace(/[０-９]/g, (s) => 
+                                            String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+                                        );
+                                        const numericValue = halfWidth.replace(/[^0-9]/g, '');
+                                        setCode(numericValue);
+                                    }}
                                     className="w-full bg-slate-900/50 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors tracking-widest text-center text-lg"
+                                    style={{ imeMode: 'disabled' }}
                                     placeholder="000000"
                                     maxLength={6}
                                     required

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,11 @@ const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
 
 export async function GET(req: NextRequest) {
+    // Rate limiting check
+    const rateCheck = checkRateLimit(req, 'friends');
+    if (rateCheck.limited) {
+        return rateLimitResponse(rateCheck.resetIn);
+    }
 
     const cookieStore = await cookies();
     const authCookie = cookieStore.get('auth')?.value;

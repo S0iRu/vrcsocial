@@ -25,6 +25,26 @@ const RATE_LIMIT_CONFIG = {
     api: {
         windowMs: 60 * 1000, // 1 minute
         maxRequests: 60, // 60 requests per minute
+    },
+    user: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 30, // 30 requests per minute
+    },
+    friends: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 20, // 20 requests per minute (heavier endpoint)
+    },
+    friendDetail: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 60, // 60 requests per minute
+    },
+    worlds: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 60, // 60 requests per minute
+    },
+    stream: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 5, // 5 connections per minute (SSE is long-lived)
     }
 };
 

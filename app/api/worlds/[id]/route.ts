@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,9 +17,16 @@ export async function GET(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    // Rate limiting check
+    const rateCheck = checkRateLimit(req, 'worlds');
+    if (rateCheck.limited) {
+        return rateLimitResponse(rateCheck.resetIn);
+    }
+
     const { id: worldId } = await params;
 
-    if (!worldId || !worldId.startsWith('wrld_')) {
+    // Input validation: World ID must match VRChat format
+    if (!worldId || typeof worldId !== 'string' || !worldId.startsWith('wrld_') || worldId.length > 50) {
         return NextResponse.json(
             { error: 'Invalid world ID' },
             { status: 400 }

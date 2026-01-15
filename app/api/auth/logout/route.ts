@@ -20,6 +20,30 @@ export async function POST(req: NextRequest) {
     }
 
     const cookieStore = await cookies();
+    
+    // Get auth cookies for VRChat API logout
+    const authCookie = cookieStore.get('auth')?.value;
+    const twoFactorCookie = cookieStore.get('twoFactorAuth')?.value;
+
+    // Call VRChat API logout endpoint to invalidate the session
+    if (authCookie) {
+        try {
+            const cookieHeader = twoFactorCookie 
+                ? `auth=${authCookie}; twoFactorAuth=${twoFactorCookie}`
+                : `auth=${authCookie}`;
+            
+            await fetch('https://api.vrchat.cloud/api/1/logout', {
+                method: 'PUT',
+                headers: {
+                    'Cookie': cookieHeader,
+                    'User-Agent': 'VRC Social/1.0.0'
+                }
+            });
+        } catch (error) {
+            // Log error but continue with local logout
+            console.error('Failed to logout from VRChat API:', error);
+        }
+    }
 
     // Delete all authentication cookies
     cookieStore.delete('auth');

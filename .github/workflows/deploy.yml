@@ -27,7 +27,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to server
-        shell: pwsh
+        shell: powershell
         run: |
           $DeployDir = "\\pci7rtx3060\c\server\vrcsocial"
           
@@ -39,7 +39,7 @@ jobs:
           npm install --omit=dev
 
       - name: Restart server
-        shell: pwsh
+        shell: powershell
         run: |
           $ServerName = "pci7rtx3060"
           $AppDir = "C:\server\vrcsocial"

@@ -1,10 +1,37 @@
 'use client';
 
-import { ChevronRight, Search, Filter, History, MapPin, Globe, User, Radio, RefreshCcw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Search, History, MapPin, Radio, RefreshCw, Trash2, Clock, Wifi, WifiOff } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { useFriends, ConnectionState } from "@/components/providers/FriendsProvider";
+
+// Get WebSocket connection status display
+const getWsStatusDisplay = (state: ConnectionState) => {
+    switch (state) {
+        case 'connected':
+            return { icon: Wifi, color: 'text-green-400', label: 'Live' };
+        case 'connecting':
+        case 'reconnecting':
+            return { icon: Wifi, color: 'text-yellow-400 animate-pulse', label: 'Connecting...' };
+        case 'disconnected':
+        default:
+            return { icon: WifiOff, color: 'text-slate-500', label: 'Disconnected' };
+    }
+};
+
+type LogEntry = {
+    id: number;
+    date: string;
+    type: string;
+    user: string;
+    detail: string;
+    color?: string;
+};
 
 export default function LogsPage() {
-    const [logs, setLogs] = useState<any[]>([]);
+    const { wsConnectionState, isAuthenticated } = useFriends();
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterType, setFilterType] = useState<string>('all');
 
     useEffect(() => {
         const loadLogs = () => {
@@ -21,135 +48,169 @@ export default function LogsPage() {
         };
 
         loadLogs();
-        // Update logs view periodically as they might be updated by the main dashboard loop
         const interval = setInterval(loadLogs, 2000);
         return () => clearInterval(interval);
     }, []);
 
-    const getLogStyle = (type: string) => {
-        switch (type) {
-            case 'OnLine': return { icon: Radio, color: 'text-green-400' };
-            case 'GPS': return { icon: MapPin, color: 'text-orange-400' };
-            case 'Offline': return { icon: Radio, color: 'text-slate-500' };
-            case 'Status': return { icon: RefreshCcw, color: 'text-yellow-400' };
-            default: return { icon: User, color: 'text-blue-400' };
+    const filteredLogs = useMemo(() => {
+        return logs.filter(log => {
+            // Filter by type
+            if (filterType !== 'all' && log.type !== filterType) return false;
+            // Filter by search query
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                return (
+                    log.user.toLowerCase().includes(query) ||
+                    log.detail.toLowerCase().includes(query)
+                );
+            }
+            return true;
+        });
+    }, [logs, searchQuery, filterType]);
+
+    const clearLogs = () => {
+        if (confirm('ログを全て削除しますか？')) {
+            localStorage.removeItem('vrc_logs');
+            setLogs([]);
         }
     };
 
+    const getLogStyle = (type: string) => {
+        switch (type) {
+            case 'OnLine': return { icon: Radio, color: 'text-green-400', bg: 'bg-green-500/10' };
+            case 'GPS': return { icon: MapPin, color: 'text-orange-400', bg: 'bg-orange-500/10' };
+            case 'Offline': return { icon: Radio, color: 'text-slate-500', bg: 'bg-slate-500/10' };
+            default: return { icon: Clock, color: 'text-blue-400', bg: 'bg-blue-500/10' };
+        }
+    };
+
+    const logTypes = ['all', 'OnLine', 'GPS', 'Offline'];
+
     return (
-        <div className="space-y-6 pb-20 h-full flex flex-col">
-            {/* Header & Controls */}
-            <div className="flex flex-col gap-4">
-                <h2 className="text-3xl font-bold text-white flex items-center gap-3">
-                    <History className="w-8 h-8 text-blue-500" /> Logs
-                </h2>
-
-                <div className="flex gap-4">
-                    {/* Filter Button */}
-                    <button className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium shadow-lg shadow-indigo-500/20 text-sm justify-center min-w-[40px] md:w-32">
-                        <Filter className="w-4 h-4" /> <span className="hidden md:inline">Filter</span>
-                    </button>
-
-                    {/* Search Bar */}
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                            type="text"
-                            placeholder="Search logs..."
-                            className="w-full bg-slate-900/50 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
-                        />
+        <div className="space-y-6 md:space-y-8 pb-24 md:pb-20">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-1">
+                <div>
+                    <h2 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-2 md:gap-3">
+                        <History className="w-6 h-6 md:w-8 md:h-8 text-blue-500" /> Logs
+                    </h2>
+                    <div className="flex items-center gap-3 mt-1">
+                        <p className="text-sm md:text-base text-muted-foreground">Activity History</p>
+                        {isAuthenticated && (
+                            <span className={`text-xs flex items-center gap-1 ${getWsStatusDisplay(wsConnectionState).color}`}>
+                                {(() => {
+                                    const status = getWsStatusDisplay(wsConnectionState);
+                                    const Icon = status.icon;
+                                    return <Icon className="w-3 h-3" />;
+                                })()}
+                                <span className="hidden sm:inline">{getWsStatusDisplay(wsConnectionState).label}</span>
+                            </span>
+                        )}
+                        <span className="text-xs text-slate-600">
+                            {filteredLogs.length} / {logs.length} entries
+                        </span>
                     </div>
+                </div>
+
+                {/* Clear Button */}
+                {logs.length > 0 && (
+                    <button
+                        onClick={clearLogs}
+                        className="flex items-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                        <span className="hidden sm:inline">Clear Logs</span>
+                    </button>
+                )}
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-3">
+                {/* Search */}
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                        type="text"
+                        placeholder="Search by name or world..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full bg-slate-900/50 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                </div>
+
+                {/* Type Filter */}
+                <div className="flex gap-2">
+                    {logTypes.map(type => (
+                        <button
+                            key={type}
+                            onClick={() => setFilterType(type)}
+                            className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                                filterType === type
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                            }`}
+                        >
+                            {type === 'all' ? 'All' : type}
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* Logs Table Area */}
-            <div className="flex-1 glass-card rounded-xl overflow-hidden flex flex-col min-h-[500px]">
-                {/* Table Header (Desktop Only) */}
-                <div className="hidden md:grid grid-cols-[40px_100px_80px_120px_1fr] gap-4 px-4 py-3 border-b border-white/10 text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-800/50">
-                    <div></div>
-                    <div>Date</div>
-                    <div>Type</div>
-                    <div>User</div>
-                    <div>Detail</div>
+            {/* Logs List */}
+            {filteredLogs.length === 0 ? (
+                <div className="glass-card rounded-xl p-8 md:p-12 text-center">
+                    <div className="w-16 h-16 md:w-20 md:h-20 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4 md:mb-6">
+                        <History className="w-8 h-8 md:w-10 md:h-10 text-blue-400" />
+                    </div>
+                    <h3 className="text-lg md:text-xl font-bold text-white mb-2">No Logs Found</h3>
+                    <p className="text-muted-foreground max-w-sm mx-auto text-sm md:text-base">
+                        {logs.length === 0
+                            ? "Activity logs will appear here as your friends come online, go offline, or change worlds."
+                            : "No logs match your current filter."}
+                    </p>
                 </div>
+            ) : (
+                <div className="space-y-2">
+                    {filteredLogs.map((log) => {
+                        const style = getLogStyle(log.type);
+                        const Icon = style.icon;
 
-                {/* Table Body (Scrollable) */}
-                <div className="overflow-y-auto flex-1 custom-scrollbar">
-                    {logs.length === 0 ? (
-                        <div className="p-10 text-center text-slate-500 text-sm">
-                            Waiting for activity logs...
-                        </div>
-                    ) : (
-                        logs.map((log) => {
-                            const style = getLogStyle(log.type);
-                            const Icon = style.icon;
-
-                            return (
-                                <div key={log.id} className="
-                                    grid grid-cols-1 md:grid-cols-[40px_100px_80px_120px_1fr] 
-                                    gap-y-2 gap-x-4 px-4 py-3 md:py-2.5 
-                                    border-b border-white/5 items-start md:items-center 
-                                    hover:bg-white/5 transition-colors text-sm group cursor-pointer
-                                ">
-                                    {/* Expand Icon */}
-                                    <div className="hidden md:flex justify-center text-slate-500 group-hover:text-white">
-                                        <ChevronRight className="w-4 h-4" />
+                        return (
+                            <div
+                                key={log.id}
+                                className="glass-card rounded-lg p-3 md:p-4 hover:border-indigo-500/30 transition-all duration-300"
+                            >
+                                <div className="flex items-center gap-3">
+                                    {/* Icon */}
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${style.bg}`}>
+                                        <Icon className={`w-5 h-5 ${style.color}`} />
                                     </div>
 
-                                    {/* Mobile View */}
-                                    <div className="md:contents">
-                                        <div className="flex md:hidden items-center justify-between mb-1">
-                                            <div className="flex items-center gap-2">
-                                                <span className={`font-bold ${log.color || style.color}`}>{log.type}</span>
-                                                <span className="text-white font-bold">{log.user}</span>
+                                    {/* Content */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <span className={`text-xs font-medium px-2 py-0.5 rounded ${style.bg} ${style.color}`}>
+                                                    {log.type}
+                                                </span>
+                                                <span className="font-medium text-white truncate">
+                                                    {log.user}
+                                                </span>
                                             </div>
-                                            <span className="text-xs text-slate-500 font-mono">{log.date}</span>
+                                            <span className="text-xs text-slate-500 font-mono shrink-0">
+                                                {log.date}
+                                            </span>
                                         </div>
-
-                                        {/* Desktop View */}
-                                        <div className="hidden md:block text-slate-300 font-mono text-xs">{log.date}</div>
-                                        <div className={`hidden md:flex font-medium ${log.color || style.color} items-center gap-1.5`}>
-                                            <Icon className="w-3.5 h-3.5" />
-                                            {log.type}
-                                        </div>
-                                        <div className="hidden md:block text-white font-medium truncate">{log.user}</div>
-                                    </div>
-
-                                    {/* Detail */}
-                                    <div className="text-slate-300 break-words md:truncate flex items-start md:items-center gap-2 text-xs md:text-sm leading-relaxed">
-                                        {log.detail}
-                                        {typeof log.detail === 'string' && log.detail.includes("🇯🇵") && <span className="text-[10px] bg-slate-700 px-1 rounded text-slate-300 shrink-0">JP</span>}
+                                        <p className="text-sm text-slate-400 mt-1 truncate">
+                                            {log.detail}
+                                        </p>
                                     </div>
                                 </div>
-                            );
-                        })
-                    )}
+                            </div>
+                        );
+                    })}
                 </div>
-
-
-                {/* Footer / Pagination */}
-                <div className="p-3 border-t border-white/10 bg-slate-800/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
-                    <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
-                        <span className="sm:hidden">Rows:</span>
-                        <select className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-300 focus:outline-none">
-                            <option>20/page</option>
-                            <option>50</option>
-                        </select>
-                        <span className="sm:hidden ml-auto">Total 957</span>
-                    </div>
-
-                    <div className="flex items-center gap-1 w-full sm:w-auto justify-center">
-                        <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 disabled:opacity-50 border border-white/10" disabled>&lt;</button>
-                        <button className="w-8 h-8 flex items-center justify-center rounded bg-indigo-600 text-white shadow-lg shadow-indigo-500/30">1</button>
-                        <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 border border-transparent">2</button>
-                        <button className="hidden sm:flex w-8 h-8 items-center justify-center rounded hover:bg-white/10">3</button>
-                        <span className="px-1 text-slate-600">...</span>
-                        <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white/10 border border-transparent">&gt;</button>
-                    </div>
-
-                    <div className="hidden sm:block">Total 957</div>
-                </div>
-            </div>
+            )}
         </div>
     );
 }

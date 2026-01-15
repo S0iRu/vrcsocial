@@ -444,14 +444,18 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
                 locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
                 saveTimestamps();
-                addLogEntry('OnLine', user.displayName, worldName || 'Online', 'text-green-400');
+                // Only log favorite friends
+                if (isFavorite) {
+                    addLogEntry('OnLine', user.displayName, worldName || 'Online', 'text-green-400');
+                }
                 rebuildInstances();
                 break;
             }
 
             case 'friend-offline': {
                 const friend = friendsDataRef.current.get(data.userId);
-                if (friend) addLogEntry('Offline', friend.name, 'Went Offline', 'text-slate-500');
+                // Only log favorite friends
+                if (friend?.isFavorite) addLogEntry('Offline', friend.name, 'Went Offline', 'text-slate-500');
                 friendsDataRef.current.delete(data.userId);
                 locationTimestampsRef.current.delete(data.userId);
                 saveTimestamps();
@@ -507,7 +511,10 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
                 locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
                 saveTimestamps();
-                addLogEntry('GPS', user.displayName, worldName || 'Private', 'text-orange-400');
+                // Only log favorite friends
+                if (isFavorite) {
+                    addLogEntry('GPS', user.displayName, worldName || 'Private', 'text-orange-400');
+                }
                 rebuildInstances();
                 break;
             }

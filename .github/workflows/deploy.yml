@@ -28,10 +28,12 @@ jobs:
 
       - name: Deploy to server
         shell: powershell
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          $NetworkPath = "\\pci7rtx3060\c\server\vrcsocial"
+          $NetworkPath = $env:DEPLOY_PATH
           
-          Write-Host "Copying files to $NetworkPath..."
+          Write-Host "Copying files to server..."
           robocopy . $NetworkPath /MIR /XD node_modules .git /XF .gitignore .env.local deploy.ps1 /NJH /NJS /NDL /NC /NS
           
           # Map network drive for npm compatibility
@@ -49,9 +51,11 @@ jobs:
 
       - name: Trigger server restart
         shell: powershell
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           # Create restart trigger file on server
-          $TriggerFile = "\\pci7rtx3060\c\server\vrcsocial\.restart"
+          $TriggerFile = "$env:DEPLOY_PATH\.restart"
           $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
           Set-Content -Path $TriggerFile -Value $Timestamp
           Write-Host "Restart trigger created at $Timestamp"

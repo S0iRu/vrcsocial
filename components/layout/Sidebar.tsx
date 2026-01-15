@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Star, History, LogOut } from 'lucide-react';
+import { Star, History, LogOut, BarChart3 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const Sidebar = () => {
@@ -46,6 +46,7 @@ const Sidebar = () => {
   const navItems = [
     { icon: Star, label: 'Favorites', href: '/' },
     { icon: History, label: 'Logs', href: '/logs' },
+    { icon: BarChart3, label: 'Graph', href: '/graph' },
   ];
 
   return (

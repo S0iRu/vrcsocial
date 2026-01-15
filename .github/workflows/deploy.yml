@@ -47,29 +47,12 @@ jobs:
           Set-Location $env:GITHUB_WORKSPACE
           net use Z: /delete /y 2>$null
 
-      - name: Restart server
+      - name: Trigger server restart
         shell: powershell
         run: |
-          $ServerName = "pci7rtx3060"
-          $AppDir = "C:\server\vrcsocial"
-          $Port = 3000
-          
-          Invoke-Command -ComputerName $ServerName -ScriptBlock {
-            param($AppDir, $Port)
-            
-            # Stop existing process
-            $pid = netstat -ano | Select-String ":$Port\s+.*LISTENING" | ForEach-Object {
-              ($_ -split '\s+')[-1]
-            } | Select-Object -First 1
-            
-            if ($pid) {
-              Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-              Start-Sleep -Seconds 2
-            }
-            
-            # Start app
-            $env:NODE_ENV = "production"
-            Start-Process -FilePath "npm" -ArgumentList "start" -WorkingDirectory $AppDir -WindowStyle Hidden
-          } -ArgumentList $AppDir, $Port
-          
-          Write-Host "Server restarted!"
+          # Create restart trigger file on server
+          $TriggerFile = "\\pci7rtx3060\c\server\vrcsocial\.restart"
+          $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          Set-Content -Path $TriggerFile -Value $Timestamp
+          Write-Host "Restart trigger created at $Timestamp"
+          Write-Host "Server will restart when watcher detects the change"

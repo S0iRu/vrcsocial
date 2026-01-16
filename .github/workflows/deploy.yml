@@ -28,16 +28,24 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
           $sshDir = "$env:USERPROFILE\.ssh"
+          $keyFile = "$sshDir\deploy_key"
+          
           if (-not (Test-Path $sshDir)) {
             New-Item -ItemType Directory -Path $sshDir -Force
           }
           
+          # 既存のキーファイルがあれば削除（パーミッションをリセットしてから）
+          if (Test-Path $keyFile) {
+            icacls $keyFile /reset
+            Remove-Item $keyFile -Force
+          }
+          
           # 環境変数から秘密鍵を取得してファイルに書き込み
           $key = $env:SSH_PRIVATE_KEY -replace "`r`n", "`n" -replace "`r", "`n"
-          [System.IO.File]::WriteAllText("$sshDir\deploy_key", $key + "`n")
+          [System.IO.File]::WriteAllText($keyFile, $key + "`n")
           
           # SSH秘密鍵のパーミッション設定
-          icacls "$sshDir\deploy_key" /inheritance:r /grant:r "${env:USERNAME}:R"
+          icacls $keyFile /inheritance:r /grant:r "${env:USERNAME}:R"
 
       - name: Stop server on remote
         timeout-minutes: 2

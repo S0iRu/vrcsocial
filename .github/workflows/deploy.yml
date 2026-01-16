@@ -11,7 +11,7 @@ env:
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted  # Self-hosted runnerを使用
     
     steps:
       - name: Checkout repository
@@ -21,7 +21,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -29,37 +28,33 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Setup SSH
+      - name: Deploy to production
+        shell: pwsh
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          # デプロイ先にコピー（node_modules以外）
+          $exclude = @('node_modules', '.git', '.github', '.env.local')
+          
+          # 既存ファイルを削除（node_modules以外）
+          Get-ChildItem -Path $deployPath -Exclude 'node_modules','.env.local' | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          
+          # ファイルをコピー
+          Get-ChildItem -Path . -Exclude $exclude | Copy-Item -Destination $deployPath -Recurse -Force
 
-      - name: Create deployment package
+      - name: Install production dependencies
+        shell: pwsh
         run: |
-          # デプロイに必要なファイルをアーカイブ
-          tar -czf deploy.tar.gz \
-            --exclude='node_modules' \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='.env.local' \
-            --exclude='*.log' \
-            .
-
-      - name: Copy files to server
-        run: |
-          scp deploy.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:"${{ secrets.DEPLOY_PATH }}/deploy.tar.gz"
-
-      - name: Extract and install on server
-        run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "powershell -Command \"Set-Location '${{ secrets.DEPLOY_PATH }}'; tar -xzf deploy.tar.gz; Remove-Item deploy.tar.gz; npm ci --omit=dev\""
+          Set-Location "${{ secrets.DEPLOY_PATH }}"
+          npm ci --omit=dev
 
       - name: Trigger server restart
+        shell: pwsh
         run: |
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "powershell -Command \"'Deploy from GitHub Actions - ' + (Get-Date) | Set-Content '${{ secrets.DEPLOY_PATH }}/.restart'\""
+          $restartFile = "${{ secrets.DEPLOY_PATH }}\.restart"
+          "Deploy from GitHub Actions - $(Get-Date)" | Set-Content $restartFile
+          Write-Host "Restart triggered at $restartFile"
 
       - name: Deployment completed
         run: |
           echo "✅ Deployment completed successfully!"
-          echo "📁 Deploy path: ${{ secrets.DEPLOY_PATH }}"

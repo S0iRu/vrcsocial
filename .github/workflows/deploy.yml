@@ -23,49 +23,60 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Deploy to production
+      - name: Setup SSH key
         run: |
+          $sshDir = "$env:USERPROFILE\.ssh"
+          if (-not (Test-Path $sshDir)) {
+            New-Item -ItemType Directory -Path $sshDir -Force
+          }
+          "${{ secrets.SERVER_SSH_KEY }}" | Set-Content "$sshDir\deploy_key" -NoNewline
+          # SSH秘密鍵のパーミッション設定
+          icacls "$sshDir\deploy_key" /inheritance:r /grant:r "${env:USERNAME}:R"
+
+      - name: Stop server on remote
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          
+          ssh -i $sshKey -o StrictHostKeyChecking=no $target "powershell -Command `"& { `$p = netstat -ano | Select-String ':3000\s+.*LISTENING' | ForEach-Object { (`$_ -split '\s+')[-1] } | Select-Object -First 1; if (`$p) { Stop-Process -Id `$p -Force -ErrorAction SilentlyContinue; Start-Sleep 3 } }`""
+
+      - name: Deploy files to server
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $sshOpts = "-o StrictHostKeyChecking=no"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          # デプロイ先フォルダが存在しない場合は作成
-          if (-not (Test-Path $deployPath)) {
-            New-Item -ItemType Directory -Path $deployPath -Force
-          }
+          # 必要なファイル/フォルダを転送
+          $items = @('.next', 'app', 'components', 'lib', 'public', 'package.json', 'package-lock.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs')
           
-          # 除外するファイル/フォルダ
-          $exclude = @('node_modules', '.git', '.github', '.env.local')
-          
-          # 既存ファイルを削除（node_modules, .env.local以外）
-          Get-ChildItem -Path $deployPath -Exclude 'node_modules','.env.local' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          
-          # ファイルをコピー
-          Get-ChildItem -Path . -Exclude $exclude | Copy-Item -Destination $deployPath -Recurse -Force
-
-      - name: Stop server before npm ci
-        run: |
-          # ポート3000で動いているプロセスを停止
-          $processId = netstat -ano | Select-String ":3000\s+.*LISTENING" | ForEach-Object {
-              ($_ -split '\s+')[-1]
-          } | Select-Object -First 1
-          
-          if ($processId) {
-            Write-Host "Stopping server (PID: $processId)..."
-            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 3
-          } else {
-            Write-Host "No server running on port 3000"
+          foreach ($item in $items) {
+            if (Test-Path $item) {
+              Write-Host "Deploying $item..."
+              scp -i $sshKey $sshOpts -r $item "${target}:${deployPath}/"
+            }
           }
 
-      - name: Install production dependencies
+      - name: Install dependencies on server
         run: |
-          Set-Location "${{ secrets.DEPLOY_PATH }}"
-          npm ci --omit=dev
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          ssh -i $sshKey -o StrictHostKeyChecking=no $target "cd $deployPath && npm ci --omit=dev"
 
-      - name: Trigger server restart
+      - name: Restart server
         run: |
-          $restartFile = "${{ secrets.DEPLOY_PATH }}\.restart"
-          "Deploy from GitHub Actions - $(Get-Date)" | Set-Content $restartFile
-          Write-Host "Restart triggered at $restartFile"
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          ssh -i $sshKey -o StrictHostKeyChecking=no $target "powershell -Command `"Set-Content -Path '$deployPath\.restart' -Value 'Deploy from GitHub Actions'`""
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          Remove-Item "$env:USERPROFILE\.ssh\deploy_key" -Force -ErrorAction SilentlyContinue
 
       - name: Deployment completed
         run: echo "Deployment completed successfully!"

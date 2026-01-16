@@ -57,30 +57,34 @@ jobs:
           # シンプルなコマンドでサーバー停止（.restartファイルを削除してwatcherに任せる方法もあり）
           ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=30 $target "taskkill /F /IM node.exe 2>nul || echo No node process found"
 
-      - name: Deploy files to server
+      - name: Create and upload archive
         timeout-minutes: 5
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          # ファイルをtarにまとめる（Windows 10以降はtar.exeが標準搭載）
+          # ファイルをtarにまとめる
           $items = @('.next', 'app', 'components', 'lib', 'public', 'package.json', 'package-lock.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs')
           $existingItems = ($items | Where-Object { Test-Path $_ }) -join ' '
           
           Write-Host "Creating deployment archive..."
           cmd /c "tar -cf deploy.tar $existingItems"
           
-          # tarファイルをSCPで転送
           Write-Host "Uploading archive..."
           scp -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes deploy.tar "${target}:deploy.tar"
           
-          # サーバー側で展開
-          Write-Host "Extracting on server..."
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "cd /d $deployPath && tar -xf %USERPROFILE%\deploy.tar && del %USERPROFILE%\deploy.tar"
-          
-          # ローカルのtarを削除
           Remove-Item deploy.tar -Force
+
+      - name: Extract archive on server
+        timeout-minutes: 2
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          # move + extract + cleanup をリモートで実行
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "move deploy.tar `"$deployPath\deploy.tar`" && cd /d `"$deployPath`" && tar -xf deploy.tar && del deploy.tar"
 
       - name: Install dependencies on server
         timeout-minutes: 5

@@ -61,11 +61,10 @@ jobs:
         timeout-minutes: 5
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
-          $sshOpts = "-o StrictHostKeyChecking=no -o BatchMode=yes"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          # Windowsパスをスラッシュに変換してクォートで囲む
+          # Windowsパスをスラッシュに変換
           $remotePath = $deployPath -replace '\\', '/'
           
           # 必要なファイル/フォルダを転送
@@ -74,7 +73,7 @@ jobs:
           foreach ($item in $items) {
             if (Test-Path $item) {
               Write-Host "Deploying $item..."
-              scp -i $sshKey $sshOpts -r $item "${target}:`"${remotePath}/`""
+              scp -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes -r $item "${target}:${remotePath}/"
             }
           }
 

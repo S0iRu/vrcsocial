@@ -94,7 +94,8 @@ jobs:
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "cd /d `"$deployPath`" && npm ci --omit=dev"
+          $remoteCmd = "Set-Location '$deployPath'; npm ci --omit=dev"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
 
       - name: Restart server
         timeout-minutes: 1
@@ -103,7 +104,8 @@ jobs:
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "echo Deploy from GitHub Actions > `"$deployPath\.restart`""
+          $remoteCmd = "Set-Content -Path '$deployPath\.restart' -Value 'Deploy from GitHub Actions'"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
 
       - name: Cleanup SSH key
         if: always()

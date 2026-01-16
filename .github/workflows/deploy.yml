@@ -61,9 +61,12 @@ jobs:
         timeout-minutes: 5
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
-          $sshOpts = "-o StrictHostKeyChecking=no"
+          $sshOpts = "-o StrictHostKeyChecking=no -o BatchMode=yes"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          # Windowsパスをスラッシュに変換してクォートで囲む
+          $remotePath = $deployPath -replace '\\', '/'
           
           # 必要なファイル/フォルダを転送
           $items = @('.next', 'app', 'components', 'lib', 'public', 'package.json', 'package-lock.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs')
@@ -71,7 +74,7 @@ jobs:
           foreach ($item in $items) {
             if (Test-Path $item) {
               Write-Host "Deploying $item..."
-              scp -i $sshKey $sshOpts -r $item "${target}:${deployPath}/"
+              scp -i $sshKey $sshOpts -r $item "${target}:`"${remotePath}/`""
             }
           }
 
@@ -82,7 +85,7 @@ jobs:
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "cd /d $deployPath && npm ci --omit=dev"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "cd /d `"$deployPath`" && npm ci --omit=dev"
 
       - name: Restart server
         timeout-minutes: 1
@@ -91,7 +94,7 @@ jobs:
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "echo Deploy from GitHub Actions > $deployPath\.restart"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "echo Deploy from GitHub Actions > `"$deployPath\.restart`""
 
       - name: Cleanup SSH key
         if: always()

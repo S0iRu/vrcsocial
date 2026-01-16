@@ -40,13 +40,17 @@ jobs:
           icacls "$sshDir\deploy_key" /inheritance:r /grant:r "${env:USERNAME}:R"
 
       - name: Stop server on remote
+        timeout-minutes: 2
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          ssh -i $sshKey -o StrictHostKeyChecking=no $target "powershell -Command `"& { `$p = netstat -ano | Select-String ':3000\s+.*LISTENING' | ForEach-Object { (`$_ -split '\s+')[-1] } | Select-Object -First 1; if (`$p) { Stop-Process -Id `$p -Force -ErrorAction SilentlyContinue; Start-Sleep 3 } }`""
+          # シンプルなコマンドでサーバー停止（.restartファイルを削除してwatcherに任せる方法もあり）
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=30 $target "taskkill /F /IM node.exe 2>nul || echo No node process found"
 
       - name: Deploy files to server
+        timeout-minutes: 5
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
           $sshOpts = "-o StrictHostKeyChecking=no"
@@ -64,20 +68,22 @@ jobs:
           }
 
       - name: Install dependencies on server
+        timeout-minutes: 5
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          ssh -i $sshKey -o StrictHostKeyChecking=no $target "cd $deployPath && npm ci --omit=dev"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "cd /d $deployPath && npm ci --omit=dev"
 
       - name: Restart server
+        timeout-minutes: 1
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          ssh -i $sshKey -o StrictHostKeyChecking=no $target "powershell -Command `"Set-Content -Path '$deployPath\.restart' -Value 'Deploy from GitHub Actions'`""
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "echo Deploy from GitHub Actions > $deployPath\.restart"
 
       - name: Cleanup SSH key
         if: always()

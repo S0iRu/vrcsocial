@@ -99,14 +99,14 @@ jobs:
 
       - name: Restart server
         timeout-minutes: 1
+        continue-on-error: true
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
-          $deployPath = "${{ secrets.DEPLOY_PATH }}" -replace '\\', '\\'
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          # New-Itemでファイル作成（上書き）
-          $remoteCmd = "`$restartFile = Join-Path '$deployPath' '.restart'; New-Item -Path `$restartFile -ItemType File -Force | Out-Null"
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command $remoteCmd"
+          # cmdでシンプルにファイル作成
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "cmd /c echo. > `"$deployPath\.restart`""
 
       - name: Cleanup SSH key
         if: always()

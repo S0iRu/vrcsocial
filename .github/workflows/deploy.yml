@@ -64,23 +64,23 @@ jobs:
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          # ファイルをZIPにまとめる
+          # ファイルをtarにまとめる（Windows 10以降はtar.exeが標準搭載）
           $items = @('.next', 'app', 'components', 'lib', 'public', 'package.json', 'package-lock.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs')
-          $existingItems = $items | Where-Object { Test-Path $_ }
+          $existingItems = ($items | Where-Object { Test-Path $_ }) -join ' '
           
           Write-Host "Creating deployment archive..."
-          Compress-Archive -Path $existingItems -DestinationPath deploy.zip -Force
+          cmd /c "tar -cf deploy.tar $existingItems"
           
-          # ZIPファイルをSCPで転送（ホームディレクトリに）
+          # tarファイルをSCPで転送
           Write-Host "Uploading archive..."
-          scp -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes deploy.zip "${target}:deploy.zip"
+          scp -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes deploy.tar "${target}:deploy.tar"
           
           # サーバー側で展開
           Write-Host "Extracting on server..."
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"Expand-Archive -Path deploy.zip -DestinationPath '$deployPath' -Force; Remove-Item deploy.zip`""
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "cd /d $deployPath && tar -xf %USERPROFILE%\deploy.tar && del %USERPROFILE%\deploy.tar"
           
-          # ローカルのZIPを削除
-          Remove-Item deploy.zip -Force
+          # ローカルのtarを削除
+          Remove-Item deploy.tar -Force
 
       - name: Install dependencies on server
         timeout-minutes: 5

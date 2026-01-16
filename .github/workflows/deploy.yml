@@ -102,11 +102,11 @@ jobs:
         run: |
           $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
-          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}" -replace '\\', '\\'
           
-          # シンプルにechoリダイレクトを使う
-          $remoteCmd = "echo 'Deploy from GitHub Actions' > '$deployPath\.restart'"
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
+          # New-Itemでファイル作成（上書き）
+          $remoteCmd = "`$restartFile = Join-Path '$deployPath' '.restart'; New-Item -Path `$restartFile -ItemType File -Force | Out-Null"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command $remoteCmd"
 
       - name: Cleanup SSH key
         if: always()

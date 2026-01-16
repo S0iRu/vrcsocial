@@ -104,7 +104,7 @@ jobs:
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          $remoteCmd = "Set-Content -Path '$deployPath\.restart' -Value 'Deploy from GitHub Actions'"
+          $remoteCmd = "Set-Content -Path (Join-Path '$deployPath' '.restart') -Value 'Deploy from GitHub Actions'"
           ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
 
       - name: Cleanup SSH key

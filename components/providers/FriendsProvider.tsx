@@ -339,6 +339,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             if (res.ok) {
                 const data = await res.json();
                 setIsAuthenticated(true);
+                isAuthenticatedRef.current = true; // Set ref immediately for SSE connection
 
                 const currentFriendsMap = new Map();
                 if (data.friends && Array.isArray(data.friends)) {
@@ -430,11 +431,13 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
             } else {
                 setIsAuthenticated(false);
+                isAuthenticatedRef.current = false; // Set ref immediately
                 setInstances([]);
                 setOfflineFriends([]);
             }
         } catch (e) {
             console.error(e);
+            isAuthenticatedRef.current = false; // Set ref immediately on error
             setInstances([]);
         } finally {
             setLoading(false);

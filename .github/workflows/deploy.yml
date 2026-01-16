@@ -9,6 +9,9 @@ on:
 jobs:
   build-and-deploy:
     runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -Command "& '{0}'"
     
     steps:
       - name: Checkout repository
@@ -21,7 +24,6 @@ jobs:
         run: npm run build
 
       - name: Deploy to production
-        shell: powershell
         run: |
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
@@ -40,7 +42,6 @@ jobs:
           Get-ChildItem -Path . -Exclude $exclude | Copy-Item -Destination $deployPath -Recurse -Force
 
       - name: Stop server before npm ci
-        shell: powershell
         run: |
           # ポート3000で動いているプロセスを停止
           $processId = netstat -ano | Select-String ":3000\s+.*LISTENING" | ForEach-Object {
@@ -56,13 +57,11 @@ jobs:
           }
 
       - name: Install production dependencies
-        shell: powershell
         run: |
           Set-Location "${{ secrets.DEPLOY_PATH }}"
           npm ci --omit=dev
 
       - name: Trigger server restart
-        shell: powershell
         run: |
           $restartFile = "${{ secrets.DEPLOY_PATH }}\.restart"
           "Deploy from GitHub Actions - $(Get-Date)" | Set-Content $restartFile

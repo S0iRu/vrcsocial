@@ -6,21 +6,13 @@ on:
       - main
   workflow_dispatch:  # 手動実行も可能
 
-env:
-  NODE_VERSION: '20'
-
 jobs:
   build-and-deploy:
-    runs-on: self-hosted  # Self-hosted runnerを使用
+    runs-on: self-hosted
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
         run: npm ci
@@ -33,11 +25,16 @@ jobs:
         run: |
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          # デプロイ先にコピー（node_modules以外）
+          # デプロイ先フォルダが存在しない場合は作成
+          if (-not (Test-Path $deployPath)) {
+            New-Item -ItemType Directory -Path $deployPath -Force
+          }
+          
+          # 除外するファイル/フォルダ
           $exclude = @('node_modules', '.git', '.github', '.env.local')
           
-          # 既存ファイルを削除（node_modules以外）
-          Get-ChildItem -Path $deployPath -Exclude 'node_modules','.env.local' | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          # 既存ファイルを削除（node_modules, .env.local以外）
+          Get-ChildItem -Path $deployPath -Exclude 'node_modules','.env.local' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           
           # ファイルをコピー
           Get-ChildItem -Path . -Exclude $exclude | Copy-Item -Destination $deployPath -Recurse -Force
@@ -56,5 +53,4 @@ jobs:
           Write-Host "Restart triggered at $restartFile"
 
       - name: Deployment completed
-        run: |
-          echo "✅ Deployment completed successfully!"
+        run: echo "Deployment completed successfully!"

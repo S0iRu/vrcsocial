@@ -1,0 +1,65 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # 手動実行も可能
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create deployment package
+        run: |
+          # デプロイに必要なファイルをアーカイブ
+          tar -czf deploy.tar.gz \
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env.local' \
+            --exclude='*.log' \
+            .
+
+      - name: Copy files to server
+        run: |
+          scp deploy.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:"${{ secrets.DEPLOY_PATH }}/deploy.tar.gz"
+
+      - name: Extract and install on server
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "powershell -Command \"Set-Location '${{ secrets.DEPLOY_PATH }}'; tar -xzf deploy.tar.gz; Remove-Item deploy.tar.gz; npm ci --omit=dev\""
+
+      - name: Trigger server restart
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "powershell -Command \"'Deploy from GitHub Actions - ' + (Get-Date) | Set-Content '${{ secrets.DEPLOY_PATH }}/.restart'\""
+
+      - name: Deployment completed
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "📁 Deploy path: ${{ secrets.DEPLOY_PATH }}"

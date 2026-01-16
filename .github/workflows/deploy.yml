@@ -21,7 +21,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to production
-        shell: pwsh
+        shell: powershell
         run: |
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
@@ -40,13 +40,13 @@ jobs:
           Get-ChildItem -Path . -Exclude $exclude | Copy-Item -Destination $deployPath -Recurse -Force
 
       - name: Install production dependencies
-        shell: pwsh
+        shell: powershell
         run: |
           Set-Location "${{ secrets.DEPLOY_PATH }}"
           npm ci --omit=dev
 
       - name: Trigger server restart
-        shell: pwsh
+        shell: powershell
         run: |
           $restartFile = "${{ secrets.DEPLOY_PATH }}\.restart"
           "Deploy from GitHub Actions - $(Get-Date)" | Set-Content $restartFile

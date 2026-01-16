@@ -109,6 +109,21 @@ const parseInstanceInfo = (location: string) => {
     return { name, type, region, creatorId, groupId };
 };
 
+// Convert VRChat API instance type to display type
+const convertInstanceType = (apiType: string | undefined): string => {
+    if (!apiType) return 'Public';
+    switch (apiType.toLowerCase()) {
+        case 'public': return 'Public';
+        case 'friends': return 'Friends';
+        case 'hidden': return 'Friends+';
+        case 'private': return 'Invite';
+        case 'invite': return 'Invite';
+        case 'inviteplus': return 'Invite+';
+        case 'group': return 'Group';
+        default: return apiType;
+    }
+};
+
 // Helper to add a log entry
 const addLogEntry = (type: string, user: string, detail: string, color: string) => {
     const now = new Date();
@@ -260,6 +275,12 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     ownerId: isTraveling ? undefined : (f.ownerId || (info?.creatorId ?? undefined)),
                     ownerName: isTraveling ? undefined : ownerName,
                 };
+            } else {
+                // Update instance type if friend has more accurate info (from API event)
+                // This handles the case where a friend joined with fresh instance data
+                if (f.instanceType && f.instanceType !== 'Public') {
+                    grouped[effectiveLoc].instanceType = f.instanceType;
+                }
             }
 
             const timestampData = locationTimestampsRef.current.get(f.id);
@@ -479,6 +500,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     }
                 }
 
+                // Get instance type from event data or parse from location
+                const info = parseInstanceInfo(data.location);
+                let instanceType = info?.type || 'Public';
+                // Use instance type from VRChat API if available (more accurate)
+                if (data.instance?.type) {
+                    instanceType = convertInstanceType(data.instance.type);
+                }
+
                 friendsDataRef.current.set(userId, {
                     id: userId,
                     name: user.displayName,
@@ -491,6 +520,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     isPrivate: data.location === 'private',
                     isFavorite,
                     favoriteGroup,
+                    instanceType,
+                    ownerId: info?.creatorId || data.instance?.ownerId,
+                    groupId: info?.groupId || data.instance?.groupId,
                 });
 
                 locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
@@ -548,6 +580,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     }
                 }
 
+                // Get instance type from event data or parse from location
+                const info = parseInstanceInfo(data.location);
+                let instanceType = info?.type || 'Public';
+                // Use instance type from VRChat API if available (more accurate for new instances)
+                if (data.instance?.type) {
+                    instanceType = convertInstanceType(data.instance.type);
+                }
+
                 friendsDataRef.current.set(userId, {
                     ...existingFriend,
                     id: userId,
@@ -561,6 +601,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     isPrivate: data.location === 'private',
                     isFavorite,
                     favoriteGroup,
+                    instanceType,
+                    ownerId: info?.creatorId || data.instance?.ownerId,
+                    groupId: info?.groupId || data.instance?.groupId,
                 });
 
                 locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });

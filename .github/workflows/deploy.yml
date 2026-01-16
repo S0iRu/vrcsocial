@@ -83,8 +83,9 @@ jobs:
           $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
           $deployPath = "${{ secrets.DEPLOY_PATH }}"
           
-          # move + extract + cleanup をリモートで実行
-          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "move deploy.tar `"$deployPath\deploy.tar`" && cd /d `"$deployPath`" && tar -xf deploy.tar && del deploy.tar"
+          # PowerShellでリモート実行
+          $remoteCmd = "Move-Item -Path deploy.tar -Destination '$deployPath\deploy.tar' -Force; Set-Location '$deployPath'; tar -xf deploy.tar; Remove-Item deploy.tar"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
 
       - name: Install dependencies on server
         timeout-minutes: 5

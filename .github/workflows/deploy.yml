@@ -1,4 +1,4 @@
-﻿name: Deploy to Production
+name: Deploy to Production
 
 on:
   push:
@@ -7,107 +7,111 @@ on:
   workflow_dispatch:  # 手動実行も可能
 
 jobs:
-  deploy:
-    runs-on: self-hosted  # サーバー上で実行    
+  build-and-deploy:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -Command "& '{0}'"
+    
     steps:
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Validate SERVER_PATH
-        shell: powershell
-        env:
-          SERVER_PATH: ${{ secrets.SERVER_PATH }}
-        run: |
-          if (-not $env:SERVER_PATH -or $env:SERVER_PATH -eq "") {
-            Write-Host "✗ Error: SERVER_PATH secret is not set"
-            Write-Host "Please set SERVER_PATH in GitHub Secrets (Settings > Secrets and variables > Actions)"
-            exit 1
-          }
-          Write-Host "✓ SERVER_PATH is set: $env:SERVER_PATH"
-
-      - name: Navigate to server directory
-        shell: powershell
-        env:
-          SERVER_PATH: ${{ secrets.SERVER_PATH }}
-        run: |
-          $ServerPath = $env:SERVER_PATH
-          Write-Host "Server path: $ServerPath"
-          
-          if (-not (Test-Path $ServerPath)) {
-            Write-Host "Creating server directory: $ServerPath"
-            New-Item -ItemType Directory -Path $ServerPath -Force | Out-Null
-          }
-          
-          Set-Location $ServerPath
-          Write-Host "Current directory: $(Get-Location)"
-
-      - name: Pull latest code
-        shell: powershell
-        env:
-          SERVER_PATH: ${{ secrets.SERVER_PATH }}
-        run: |
-          Set-Location $env:SERVER_PATH
-          
-          if (Test-Path ".git") {
-            Write-Host "Pulling latest changes from main branch..."
-            git fetch origin
-            git reset --hard origin/main
-            git clean -fd
-          } else {
-            Write-Host "Initializing git repository..."
-            git init
-            $RepoUrl = "${{ github.server_url }}/${{ github.repository }}"
-            git remote add origin $RepoUrl 2>$null
-            if ($LASTEXITCODE -ne 0) {
-              git remote set-url origin $RepoUrl
-            }
-            git fetch origin
-            git checkout -b main
-            git reset --hard origin/main
-          }
-          
-          Write-Host "Current commit: $(git rev-parse HEAD)"
-          Write-Host "Current branch: $(git branch --show-current)"
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install dependencies
-        shell: powershell
-        env:
-          SERVER_PATH: ${{ secrets.SERVER_PATH }}
-        run: |
-          Set-Location $env:SERVER_PATH
-          Write-Host "Installing dependencies..."
-          npm ci
+        run: npm ci
 
       - name: Build application
-        shell: powershell
-        env:
-          SERVER_PATH: ${{ secrets.SERVER_PATH }}
-          NODE_ENV: production
-        run: |
-          Set-Location $env:SERVER_PATH
-          Write-Host "Building application..."
-          npm run build
-          Write-Host "Build completed successfully!"
+        run: npm run build
 
-      - name: Trigger server restart
-        shell: powershell
+      - name: Setup SSH key
         env:
-          SERVER_PATH: ${{ secrets.SERVER_PATH }}
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
         run: |
-          $TriggerFile = "$env:SERVER_PATH\.restart"
-          $Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          $sshDir = "$env:USERPROFILE\.ssh"
+          $keyFile = "$sshDir\deploy_key"
           
-          Write-Host "Creating restart trigger file..."
-          Set-Content -Path $TriggerFile -Value $Timestamp
-          Write-Host "Restart trigger created at $Timestamp"
-          Write-Host "Server will restart when watcher detects the change"
-          
-          # Verify the file was created
-          if (Test-Path $TriggerFile) {
-            Write-Host "✓ Restart trigger file created successfully"
-          } else {
-            Write-Host "✗ Failed to create restart trigger file"
-            exit 1
+          if (-not (Test-Path $sshDir)) {
+            New-Item -ItemType Directory -Path $sshDir -Force
           }
+          
+          # 既存のキーファイルがあれば削除（パーミッションをリセットしてから）
+          if (Test-Path $keyFile) {
+            icacls $keyFile /reset
+            Remove-Item $keyFile -Force
+          }
+          
+          # 環境変数から秘密鍵を取得してファイルに書き込み
+          $key = $env:SSH_PRIVATE_KEY -replace "`r`n", "`n" -replace "`r", "`n"
+          [System.IO.File]::WriteAllText($keyFile, $key + "`n")
+          
+          # SSH秘密鍵のパーミッション設定
+          icacls $keyFile /inheritance:r /grant:r "${env:USERNAME}:R"
+
+      - name: Stop server on remote
+        timeout-minutes: 2
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          # シンプルなコマンドでサーバー停止（.restartファイルを削除してwatcherに任せる方法もあり）
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=30 $target "taskkill /F /IM node.exe 2>nul || echo No node process found"
+
+      - name: Create and upload archive
+        timeout-minutes: 5
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          # ファイルをtarにまとめる
+          $items = @('.next', 'app', 'components', 'lib', 'public', 'package.json', 'package-lock.json', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs')
+          $existingItems = ($items | Where-Object { Test-Path $_ }) -join ' '
+          
+          Write-Host "Creating deployment archive..."
+          cmd /c "tar -cf deploy.tar $existingItems"
+          
+          Write-Host "Uploading archive..."
+          scp -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes deploy.tar "${target}:deploy.tar"
+          
+          Remove-Item deploy.tar -Force
+
+      - name: Extract archive on server
+        timeout-minutes: 2
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          # PowerShellでリモート実行
+          $remoteCmd = "Move-Item -Path deploy.tar -Destination '$deployPath\deploy.tar' -Force; Set-Location '$deployPath'; tar -xf deploy.tar; Remove-Item deploy.tar"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
+
+      - name: Install dependencies on server
+        timeout-minutes: 5
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          $remoteCmd = "Set-Location '$deployPath'; npm ci --omit=dev"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
+
+      - name: Restart server
+        timeout-minutes: 1
+        run: |
+          $sshKey = "$env:USERPROFILE\.ssh\deploy_key"
+          $target = "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}"
+          $deployPath = "${{ secrets.DEPLOY_PATH }}"
+          
+          # 他の成功しているステップと同じパターンを使用
+          $remoteCmd = "Set-Location '$deployPath'; New-Item -Name '.restart' -ItemType File -Force"
+          ssh -i $sshKey -o StrictHostKeyChecking=no -o BatchMode=yes $target "powershell -Command `"$remoteCmd`""
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          Remove-Item "$env:USERPROFILE\.ssh\deploy_key" -Force -ErrorAction SilentlyContinue
+
+      - name: Deployment completed
+        run: echo "Deployment completed successfully!"

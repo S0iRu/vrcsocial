@@ -12,6 +12,8 @@ on:
 jobs:
   build-and-deploy:
     runs-on: self-hosted
+    env:
+      PM2_HOME: /home/s0iru/.pm2
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +31,7 @@ jobs:
 
       - name: Start or restart PM2
         run: |
+          export PATH="$(ls -d $HOME/.nvm/versions/node/v*/bin | tail -1):$PATH"
           if pm2 describe vrcsocial >/dev/null 2>&1; then
             pm2 restart vrcsocial --update-env
           else

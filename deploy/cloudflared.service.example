@@ -1,0 +1,19 @@
+# Cloudflare Tunnel (cloudflared) systemd unit template.
+# Copy to /etc/systemd/system/cloudflared.service and edit:
+#   - /usr/bin/cloudflared: change if your cloudflared binary is elsewhere (e.g. /usr/local/bin/cloudflared)
+#   - YOUR_CF_TUNNEL_TOKEN: token from Cloudflare dashboard (Zero Trust → Networks → Tunnels → your tunnel → Configure)
+# Then: sudo systemctl daemon-reload && sudo systemctl enable --now cloudflared
+
+[Unit]
+Description=Cloudflare Tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cloudflared tunnel --loglevel info run --token YOUR_CF_TUNNEL_TOKEN
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

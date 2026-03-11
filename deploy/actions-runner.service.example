@@ -1,0 +1,23 @@
+# GitHub Actions self-hosted runner systemd unit template.
+# Copy to /etc/systemd/system/actions-runner.vrcsocial.service (or desired name) and edit:
+#   - /path/to/actions-runner: full path to the runner install directory (contains run.sh, e.g. /home/USER/actions-runner)
+#   - USER: user that runs the runner (same as the one that installed it)
+# Then: sudo systemctl daemon-reload && sudo systemctl enable --now actions-runner.vrcsocial
+#
+# Alternatively, use the official script from the runner directory: sudo ./svc.sh install
+
+[Unit]
+Description=GitHub Actions self-hosted runner (vrcsocial)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=USER
+WorkingDirectory=/path/to/actions-runner
+ExecStart=/path/to/actions-runner/run.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

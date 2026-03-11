@@ -48,57 +48,13 @@ npm run build
 npm run start
 ```
 
-## デプロイ (Cloudflare Tunnel)
+## デプロイ
 
-ローカルPCをサーバーとして、Cloudflare Tunnelで公開できます。
+本番ビルド後、アプリを起動し、必要に応じてリバースプロキシやトンネル（Cloudflare Tunnel など）で公開できます。
 
-### 1. cloudflaredのインストール
-
-```bash
-winget install --id Cloudflare.cloudflared -e
-```
-
-### 2. Cloudflareにログイン
-
-```bash
-cloudflared tunnel login
-```
-
-### 3. トンネルの作成
-
-```bash
-cloudflared tunnel create vrcsocial
-```
-
-### 4. DNSの設定
-
-Cloudflareダッシュボードで、CNAMEレコードを追加:
-- **Name**: 任意のサブドメイン
-- **Target**: `<TUNNEL_ID>.cfargotunnel.com`
-
-### 5. 設定ファイルの作成
-
-`~/.cloudflared/config.yml`:
-
-```yaml
-tunnel: <TUNNEL_ID>
-credentials-file: ~/.cloudflared/<TUNNEL_ID>.json
-
-ingress:
-  - hostname: your-domain.example.com
-    service: http://localhost:3000
-  - service: http_status:404
-```
-
-### 6. 起動
-
-```bash
-# ターミナル1: Next.jsサーバー
-npm run start
-
-# ターミナル2: Cloudflareトンネル
-cloudflared tunnel run vrcsocial
-```
+1. **ビルド**: `npm run build`
+2. **起動**: `npm run start`（またはプロセスマネージャで常時起動）
+3. **公開**: 利用する環境に合わせて、トンネル・リバースプロキシ・DNS などを設定し、アプリの待ち受けポートへ転送する。
 
 ## 注意事項
 

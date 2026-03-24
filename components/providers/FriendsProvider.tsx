@@ -552,6 +552,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const existingFriend = friendsDataRef.current.get(userId);
                 const isFavorite = existingFriend?.isFavorite ?? favoriteIdsRef.current.has(userId);
                 const favoriteGroup = existingFriend?.favoriteGroup ?? favoriteGroupsRef.current.get(userId);
+                const previousLocation = existingFriend?.location;
+                const hasLocationChanged = previousLocation !== data.location;
 
                 // Get previous location info
                 const prevWorldName = existingFriend?.worldName || 'Unknown';
@@ -606,11 +608,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     groupId: info?.groupId || data.instance?.groupId,
                 });
 
-                locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
-                saveTimestamps();
-                // Only log favorite friends
-                if (isFavorite) {
-                    const newWorldName = worldName || 'Private';
+                if (hasLocationChanged) {
+                    locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
+                    saveTimestamps();
+                }
+
+                // Only log favorite friends when the location actually changed
+                if (isFavorite && hasLocationChanged) {
+                    const newWorldName = worldName || (data.location === 'private' ? 'Private World' : existingFriend?.worldName || 'Unknown');
                     const logDetail = `${prevWorldName} → ${newWorldName}`;
                     addLogEntry('GPS', user.displayName, logDetail, 'text-orange-400');
                 }

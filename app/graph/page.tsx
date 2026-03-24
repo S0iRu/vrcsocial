@@ -188,6 +188,7 @@ export default function GraphPage() {
     const worldScrollRef = useRef<HTMLDivElement>(null);
 
     const dayWidth = DAY_WIDTH_BASE * zoom;
+    const totalWidth = dayWidth * DAYS_TO_SHOW;
     const isSyncingRef = useRef(false);
     const initialScrollDoneRef = useRef(false);
 
@@ -419,7 +420,6 @@ export default function GraphPage() {
         setLastLoadedAt(new Date());
     }, []);
 
-    const totalWidth = dayWidth * DAYS_TO_SHOW;
     const hasData = userTimelines.length > 0 || worldTimelines.length > 0;
     const minZoom = 0.5;
     const maxZoom = 2;

@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart3, ZoomIn, ZoomOut, Users, Globe, RefreshCw } from "lucide-react";
+import { BarChart3, ZoomIn, ZoomOut, Users, Globe, RefreshCw, RotateCcw, Clock3, Activity } from "lucide-react";
 import { useEffect, useState, useMemo, useRef, useCallback, memo } from "react";
 
 // ステータスの色
@@ -11,6 +11,22 @@ const getStatusBgClass = (status: string) => {
     if (s === 'busy' || s === 'do not disturb') return 'bg-red-500';
     if (s === 'active' || s === 'online') return 'bg-green-500';
     return 'bg-slate-500';
+};
+
+const STATUS_LEGEND = [
+    { key: 'join me', label: 'Join Me', className: 'bg-blue-500' },
+    { key: 'active', label: 'Active', className: 'bg-green-500' },
+    { key: 'ask me', label: 'Ask Me', className: 'bg-orange-500' },
+    { key: 'busy', label: 'Busy / DND', className: 'bg-red-500' },
+    { key: 'offline', label: 'Offline / Other', className: 'bg-slate-500' },
+] as const;
+
+const formatStatusLabel = (status: string): string => {
+    if (!status) return 'Unknown';
+    return status
+        .split(' ')
+        .map(token => token.charAt(0).toUpperCase() + token.slice(1))
+        .join(' ');
 };
 
 // 型定義
@@ -49,10 +65,18 @@ type HourMarker = {
     isDay: boolean;
 };
 
+type TooltipState = {
+    entry: TimelineEntry;
+    x: number;
+    y: number;
+};
+
 // 日付フォーマット
 const formatDate = (date: Date): string => `${date.getMonth() + 1}/${date.getDate()}`;
 const formatTime = (date: Date): string => `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 const formatDateTime = (date: Date): string => `${formatDate(date)} ${formatTime(date)}`;
+const formatNumber = (value: number): string => new Intl.NumberFormat('ja-JP').format(value);
+const getEntryDurationMs = (entry: TimelineEntry): number => Math.max(0, entry.endTime.getTime() - entry.startTime.getTime());
 
 // ログの日付をパース
 const parseLogTime = (log: LogEntry): Date | null => {
@@ -79,7 +103,7 @@ const TimelineChart = memo(function TimelineChart({
     onEntryHover,
 }: { 
     scrollRef: React.RefObject<HTMLDivElement | null>;
-    timelines: (UserTimeline | WorldTimeline)[];
+    timelines: Array<UserTimeline | WorldTimeline>;
     labelKey: 'userName' | 'worldName';
     contentKey: 'user' | 'world';
     onScroll: () => void;
@@ -93,11 +117,13 @@ const TimelineChart = memo(function TimelineChart({
             {/* 固定ラベル列 */}
             <div className="shrink-0 w-32 md:w-40 pr-2 sticky left-0 bg-[#0f172a]/95 z-20">
                 <div className="h-6 mb-1"></div>
-                {timelines.map((tl: any, i: number) => (
+                {timelines.map((tl, i: number) => {
+                    const rowLabel = labelKey === 'userName' ? (tl as UserTimeline).userName : (tl as WorldTimeline).worldName;
+                    return (
                     <div key={i} className="h-7 flex items-center mb-0.5">
-                        <p className="text-xs text-slate-300 truncate" title={tl[labelKey]}>{tl[labelKey]}</p>
+                        <p className="text-xs text-slate-300 truncate" title={rowLabel}>{rowLabel}</p>
                     </div>
-                ))}
+                )})}
             </div>
 
             {/* スクロール可能なタイムライン */}
@@ -118,7 +144,7 @@ const TimelineChart = memo(function TimelineChart({
                     ))}
 
                     {/* 行 */}
-                    {timelines.map((tl: any, i: number) => (
+                    {timelines.map((tl, i: number) => (
                         <div key={i} className="h-7 mb-0.5 relative">
                             <div className="absolute inset-0 bg-slate-800/20 rounded" />
                             {hourMarkers.map((m, j) => (
@@ -156,7 +182,8 @@ const TimelineChart = memo(function TimelineChart({
 export default function GraphPage() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [zoom, setZoom] = useState(1);
-    const [tooltip, setTooltip] = useState<{ entry: TimelineEntry; x: number; y: number } | null>(null);
+    const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+    const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
     const userScrollRef = useRef<HTMLDivElement>(null);
     const worldScrollRef = useRef<HTMLDivElement>(null);
 
@@ -178,7 +205,8 @@ export default function GraphPage() {
     const loadLogs = useCallback(() => {
         try {
             const data = localStorage.getItem('vrc_logs');
-            if (data) setLogs(JSON.parse(data));
+            setLogs(data ? JSON.parse(data) : []);
+            setLastLoadedAt(new Date());
         } catch (e) {
             console.error(e);
         }
@@ -187,6 +215,18 @@ export default function GraphPage() {
     useEffect(() => {
         loadLogs();
     }, [loadLogs]);
+
+    const scrollToNow = useCallback(() => {
+        const totalMs = dateRange.end.getTime() - dateRange.start.getTime();
+        const currentMs = new Date().getTime() - dateRange.start.getTime();
+        const scrollRatio = Math.min(1, Math.max(0, currentMs / totalMs));
+
+        [userScrollRef.current, worldScrollRef.current].forEach(el => {
+            if (!el) return;
+            const targetScroll = totalWidth * scrollRatio - el.clientWidth / 2;
+            el.scrollLeft = Math.max(0, targetScroll);
+        });
+    }, [dateRange, totalWidth]);
 
     // スクロール同期
     const syncScroll = useCallback((source: 'user' | 'world') => {
@@ -211,29 +251,10 @@ export default function GraphPage() {
         if (initialScrollDoneRef.current) return;
         initialScrollDoneRef.current = true;
         
-        const timer = setTimeout(() => {
-            const now = new Date();
-            const end = new Date();
-            end.setHours(23, 59, 59, 999);
-            const start = new Date(end);
-            start.setDate(start.getDate() - DAYS_TO_SHOW + 1);
-            start.setHours(0, 0, 0, 0);
-            
-            const totalMs = end.getTime() - start.getTime();
-            const currentMs = now.getTime() - start.getTime();
-            const scrollRatio = currentMs / totalMs;
-            const totalWidth = DAY_WIDTH_BASE * DAYS_TO_SHOW;
-            
-            [userScrollRef, worldScrollRef].forEach(ref => {
-                if (ref.current) {
-                    const targetScroll = totalWidth * scrollRatio - ref.current.clientWidth / 2;
-                    ref.current.scrollLeft = Math.max(0, targetScroll);
-                }
-            });
-        }, 100);
+        const timer = setTimeout(scrollToNow, 100);
         
         return () => clearTimeout(timer);
-    }, []);
+    }, [scrollToNow]);
 
     // エントリデータ構築
     const allEntries = useMemo((): TimelineEntry[] => {
@@ -297,7 +318,11 @@ export default function GraphPage() {
         userMap.forEach((entries, userName) => {
             result.push({ userName, entries: entries.sort((a, b) => a.startTime.getTime() - b.startTime.getTime()) });
         });
-        return result.sort((a, b) => (a.entries[0]?.startTime.getTime() || 0) - (b.entries[0]?.startTime.getTime() || 0));
+        return result.sort((a, b) => {
+            const aDuration = a.entries.reduce((sum, entry) => sum + getEntryDurationMs(entry), 0);
+            const bDuration = b.entries.reduce((sum, entry) => sum + getEntryDurationMs(entry), 0);
+            return bDuration - aDuration;
+        });
     }, [allEntries]);
 
     // ワールドごとのタイムライン
@@ -313,7 +338,11 @@ export default function GraphPage() {
         worldMap.forEach((entries, worldName) => {
             result.push({ worldName, entries: entries.sort((a, b) => a.startTime.getTime() - b.startTime.getTime()) });
         });
-        return result.sort((a, b) => (a.entries[0]?.startTime.getTime() || 0) - (b.entries[0]?.startTime.getTime() || 0));
+        return result.sort((a, b) => {
+            const aDuration = a.entries.reduce((sum, entry) => sum + getEntryDurationMs(entry), 0);
+            const bDuration = b.entries.reduce((sum, entry) => sum + getEntryDurationMs(entry), 0);
+            return bDuration - aDuration;
+        });
     }, [allEntries]);
 
     // 時間をX座標に変換
@@ -344,7 +373,11 @@ export default function GraphPage() {
     // ツールチップ表示（useCallbackでメモ化）
     const handleEntryHover = useCallback((entry: TimelineEntry | null, x: number, y: number) => {
         if (entry) {
-            setTooltip({ entry, x, y });
+            const tooltipWidth = 260;
+            const tooltipHeight = 118;
+            const safeX = Math.max(12, Math.min(window.innerWidth - tooltipWidth - 12, x + 15));
+            const safeY = Math.max(12, Math.min(window.innerHeight - tooltipHeight - 12, y + 15));
+            setTooltip({ entry, x: safeX, y: safeY });
         } else {
             setTooltip(null);
         }
@@ -383,49 +416,103 @@ export default function GraphPage() {
         const existing = JSON.parse(localStorage.getItem('vrc_logs') || '[]');
         localStorage.setItem('vrc_logs', JSON.stringify([...testLogs, ...existing].slice(0, 500)));
         setLogs([...testLogs, ...existing].slice(0, 500));
+        setLastLoadedAt(new Date());
     }, []);
 
     const totalWidth = dayWidth * DAYS_TO_SHOW;
     const hasData = userTimelines.length > 0 || worldTimelines.length > 0;
+    const minZoom = 0.5;
+    const maxZoom = 2;
+    const canZoomOut = zoom > minZoom;
+    const canZoomIn = zoom < maxZoom;
 
     // スクロールハンドラー
     const handleUserScroll = useCallback(() => syncScroll('user'), [syncScroll]);
     const handleWorldScroll = useCallback(() => syncScroll('world'), [syncScroll]);
 
+    const stats = useMemo(() => {
+        const totalDurationHours = allEntries.reduce((sum, entry) => sum + getEntryDurationMs(entry), 0) / (1000 * 60 * 60);
+        const uniqueUsers = new Set(allEntries.map(entry => entry.user)).size;
+        const uniqueWorlds = new Set(allEntries.map(entry => entry.world)).size;
+        const activeSessions = allEntries.filter(entry => Date.now() - entry.endTime.getTime() < 60 * 1000).length;
+        return { totalDurationHours, uniqueUsers, uniqueWorlds, activeSessions };
+    }, [allEntries]);
+
     return (
         <div className="space-y-4 pb-24 md:pb-8">
             {/* ヘッダー */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
                     <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                         <BarChart3 className="w-6 h-6 text-purple-500" /> Graph
                     </h2>
-                    <span className="text-xs text-slate-500">({logs.length} logs)</span>
+                    <div className="pt-1.5 space-y-0.5">
+                        <p className="text-xs text-slate-500">{formatNumber(logs.length)} logs / 過去{DAYS_TO_SHOW}日</p>
+                        <p className="text-[11px] text-slate-600">
+                            最終更新: {lastLoadedAt ? formatDateTime(lastLoadedAt) : '-'}
+                        </p>
+                    </div>
                 </div>
                 
-                <div className="flex items-center gap-2">
-                    <button onClick={loadLogs} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300" title="更新">
+                <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={loadLogs} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300" title="更新" aria-label="ログを再読み込み">
                         <RefreshCw className="w-4 h-4" />
                     </button>
+                    <button onClick={scrollToNow} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300" title="現在時刻へ移動" aria-label="現在時刻へ移動">
+                        <Clock3 className="w-4 h-4" />
+                    </button>
                     <div className="w-px h-4 bg-slate-700"></div>
-                    <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+                    <button
+                        onClick={() => setZoom(z => Math.max(minZoom, z - 0.25))}
+                        disabled={!canZoomOut}
+                        className={`p-1.5 rounded-lg text-slate-300 ${canZoomOut ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-900/60 opacity-50 cursor-not-allowed'}`}
+                        aria-label="ズームアウト"
+                    >
                         <ZoomOut className="w-4 h-4" />
                     </button>
                     <span className="text-xs text-slate-400 w-10 text-center">{Math.round(zoom * 100)}%</span>
-                    <button onClick={() => setZoom(z => Math.min(2, z + 0.25))} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300">
+                    <button
+                        onClick={() => setZoom(z => Math.min(maxZoom, z + 0.25))}
+                        disabled={!canZoomIn}
+                        className={`p-1.5 rounded-lg text-slate-300 ${canZoomIn ? 'bg-slate-800 hover:bg-slate-700' : 'bg-slate-900/60 opacity-50 cursor-not-allowed'}`}
+                        aria-label="ズームイン"
+                    >
                         <ZoomIn className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => setZoom(1)} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300" title="ズームをリセット" aria-label="ズームをリセット">
+                        <RotateCcw className="w-4 h-4" />
                     </button>
                 </div>
             </div>
 
             {/* 凡例 */}
-            <div className="flex flex-wrap justify-center gap-4">
-                {[['bg-blue-500', 'Join Me'], ['bg-green-500', 'Active'], ['bg-orange-500', 'Ask Me'], ['bg-red-500', 'Busy']].map(([bg, label]) => (
+            <div className="flex flex-wrap justify-center gap-4 rounded-xl border border-white/5 bg-slate-900/40 p-2.5">
+                {STATUS_LEGEND.map(({ className, label }) => (
                     <div key={label} className="flex items-center gap-1.5">
-                        <div className={`w-2.5 h-2.5 rounded ${bg}`}></div>
+                        <div className={`w-2.5 h-2.5 rounded ${className}`}></div>
                         <span className="text-xs text-slate-400">{label}</span>
                     </div>
                 ))}
+            </div>
+
+            {/* サマリー */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="rounded-xl border border-white/5 bg-slate-900/40 px-3 py-2.5">
+                    <p className="text-[11px] text-slate-500">Users</p>
+                    <p className="text-lg font-semibold text-white">{formatNumber(stats.uniqueUsers)}</p>
+                </div>
+                <div className="rounded-xl border border-white/5 bg-slate-900/40 px-3 py-2.5">
+                    <p className="text-[11px] text-slate-500">Worlds</p>
+                    <p className="text-lg font-semibold text-white">{formatNumber(stats.uniqueWorlds)}</p>
+                </div>
+                <div className="rounded-xl border border-white/5 bg-slate-900/40 px-3 py-2.5">
+                    <p className="text-[11px] text-slate-500">Total Time</p>
+                    <p className="text-lg font-semibold text-white">{stats.totalDurationHours.toFixed(1)}h</p>
+                </div>
+                <div className="rounded-xl border border-white/5 bg-slate-900/40 px-3 py-2.5">
+                    <p className="text-[11px] text-slate-500 flex items-center gap-1"><Activity className="w-3.5 h-3.5 text-emerald-400" /> Active Sessions</p>
+                    <p className="text-lg font-semibold text-white">{formatNumber(stats.activeSessions)}</p>
+                </div>
             </div>
 
             {!hasData ? (
@@ -433,9 +520,14 @@ export default function GraphPage() {
                     <BarChart3 className="w-12 h-12 text-purple-400 mx-auto mb-4 opacity-50" />
                     <h3 className="text-lg font-bold text-white mb-2">データがありません</h3>
                     <p className="text-slate-400 text-sm mb-6">過去{DAYS_TO_SHOW}日間のログがありません</p>
-                    <button onClick={addTestData} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm">
-                        テストデータを追加
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                        <button onClick={loadLogs} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm">
+                            再読み込み
+                        </button>
+                        <button onClick={addTestData} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm">
+                            テストデータを追加
+                        </button>
+                    </div>
                 </div>
             ) : (
                 <>
@@ -484,12 +576,12 @@ export default function GraphPage() {
             {/* ツールチップ */}
             {tooltip && (
                 <div className="fixed z-50 bg-slate-900 border border-slate-700 rounded-lg p-2.5 shadow-xl pointer-events-none"
-                    style={{ left: tooltip.x + 15, top: tooltip.y + 15 }}>
+                    style={{ left: tooltip.x, top: tooltip.y }}>
                     <p className="text-sm font-bold text-white">{tooltip.entry.user}</p>
                     <p className="text-xs text-purple-400">{tooltip.entry.world}</p>
                     <div className="flex items-center gap-2 mt-1">
                         <div className={`w-2 h-2 rounded ${getStatusBgClass(tooltip.entry.status)}`} />
-                        <span className="text-xs text-slate-300">{tooltip.entry.status}</span>
+                        <span className="text-xs text-slate-300">{formatStatusLabel(tooltip.entry.status)}</span>
                     </div>
                     <p className="text-[10px] text-slate-500 mt-1">
                         {formatDateTime(tooltip.entry.startTime)} ~ {formatDateTime(tooltip.entry.endTime)}
@@ -497,7 +589,7 @@ export default function GraphPage() {
                 </div>
             )}
 
-            <p className="text-center text-xs text-slate-600">← 横スクロールで過去{DAYS_TO_SHOW}日間を連続表示 / 両グラフは同期スクロール →</p>
+            <p className="text-center text-xs text-slate-600">← 横スクロールで過去{DAYS_TO_SHOW}日間を連続表示 / 両グラフは同期スクロール / 右上の時計アイコンで現在時刻にジャンプ →</p>
         </div>
     );
 }

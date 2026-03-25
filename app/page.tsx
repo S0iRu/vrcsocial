@@ -33,14 +33,17 @@ const formatDuration = (joinedAt: number | undefined): string => {
     const totalHours = Math.floor(totalMinutes / 60);
     const hours = totalHours % 24;
     const days = Math.floor(totalHours / 24);
+    const paddedMinutes = minutes.toString().padStart(2, '0');
+    const paddedSeconds = seconds.toString().padStart(2, '0');
+    const paddedHours = hours.toString().padStart(2, '0');
     
     if (days > 0) {
-        return `${days}日${hours}時間${minutes}分`;
+        return `${days}d ${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
     }
     if (hours > 0) {
-        return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        return `${hours}:${paddedMinutes}:${paddedSeconds}`;
     }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    return `${minutes}:${paddedSeconds}`;
 };
 
 type InstanceGroup = {

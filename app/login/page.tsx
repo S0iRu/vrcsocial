@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Lock, User, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
 
+const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) return error.message;
+    return String(error);
+};
+
 export default function LoginPage() {
-    const router = useRouter();
     const [step, setStep] = useState<'login' | '2fa'>('login');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -47,9 +50,9 @@ export default function LoginPage() {
                 // Show full response data for debugging
                 setDebugInfo(JSON.stringify(data, null, 2));
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError('An error occurred during login request.');
-            setDebugInfo(err.toString());
+            setDebugInfo(getErrorMessage(err));
         } finally {
             setIsLoading(false);
         }
@@ -79,9 +82,9 @@ export default function LoginPage() {
                     setDebugInfo(JSON.stringify(data.details, null, 2));
                 }
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError('An error occurred during verification.');
-            setDebugInfo(err.message);
+            setDebugInfo(getErrorMessage(err));
         } finally {
             setIsLoading(false);
         }
@@ -94,8 +97,8 @@ export default function LoginPage() {
             const res = await fetch('/api/auth/login', { method: 'GET' });
             const data = await res.json();
             setDebugInfo('Connection Result:\n' + JSON.stringify(data, null, 2));
-        } catch (e: any) {
-            setDebugInfo('Test Failed: ' + e.toString());
+        } catch (error: unknown) {
+            setDebugInfo('Test Failed: ' + getErrorMessage(error));
         } finally {
             setIsLoading(false);
         }

@@ -84,7 +84,7 @@ export async function GET(
             heat: worldData.heat,
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[WorldsAPI] Error:', error);
         return NextResponse.json(
             { error: 'Internal server error' },

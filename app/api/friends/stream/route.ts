@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     const stream = new ReadableStream({
         start(controller) {
             // Send initial connection message
-            const sendSSE = (event: string, data: any) => {
+            const sendSSE = (event: string, data: unknown) => {
                 if (isConnectionClosed) return;
                 try {
                     const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;

@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, History, MapPin, Radio, RefreshCw, Trash2, Clock, Wifi, WifiOff } from "lucide-react";
+import { Search, History, MapPin, Radio, Trash2, Clock, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState, useMemo } from "react";
 import { useFriends, ConnectionState } from "@/components/providers/FriendsProvider";
 

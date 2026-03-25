@@ -2,6 +2,7 @@
 
 import { MapPin, Users, Globe, ArrowLeft, Loader2, UserX, ExternalLink } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useFriends } from "@/components/providers/FriendsProvider";
@@ -156,10 +157,13 @@ export default function FriendDetailsPage() {
                 {/* Banner */}
                 <div className="h-48 bg-gradient-to-br from-indigo-900/50 to-slate-900 relative">
                     {friend.profilePicOverride && (
-                        <img 
-                            src={friend.profilePicOverride} 
-                            alt="Banner" 
-                            className="w-full h-full object-cover opacity-50" 
+                        <Image
+                            src={friend.profilePicOverride}
+                            alt="Banner"
+                            fill
+                            sizes="100vw"
+                            className="w-full h-full object-cover opacity-50"
+                            unoptimized
                         />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent opacity-80"></div>
@@ -170,7 +174,7 @@ export default function FriendDetailsPage() {
                     <div className="relative">
                         <div className="w-32 h-32 rounded-full border-4 border-[#0f172a] bg-slate-800 overflow-hidden">
                             {friend.icon ? (
-                                <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                <Image src={friend.icon} alt={friend.name} width={128} height={128} className="w-full h-full object-cover" unoptimized />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-4xl text-slate-500">
                                     {friend.name.charAt(0)}
@@ -345,10 +349,13 @@ export default function FriendDetailsPage() {
                         ) : friend.world ? (
                             <>
                                 <div className="group relative rounded-xl overflow-hidden aspect-video bg-slate-800 mb-4">
-                                    <img 
-                                        src={friend.world.thumbnailImageUrl || friend.world.imageUrl} 
-                                        alt={friend.world.name} 
-                                        className="w-full h-full object-cover" 
+                                    <Image
+                                        src={friend.world.thumbnailImageUrl || friend.world.imageUrl}
+                                        alt={friend.world.name}
+                                        fill
+                                        sizes="(max-width: 1024px) 100vw, 66vw"
+                                        className="w-full h-full object-cover"
+                                        unoptimized
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-6">
                                         <div>
@@ -422,7 +429,7 @@ export default function FriendDetailsPage() {
                                     >
                                         <div className="w-10 h-10 rounded-full bg-slate-800 overflow-hidden">
                                             {f.icon ? (
-                                                <img src={f.icon} alt={f.name} className="w-full h-full object-cover" />
+                                                <Image src={f.icon} alt={f.name} width={40} height={40} className="w-full h-full object-cover" unoptimized />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center text-slate-500">
                                                     {f.name?.charAt(0) || '?'}

@@ -8,6 +8,81 @@ const API_BASE = 'https://api.vrchat.cloud/api/1';
 
 const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
+type VrcFriendApi = {
+    id: string;
+    displayName: string;
+    status?: string;
+    statusDescription?: string;
+    userIcon?: string;
+    profilePicOverride?: string;
+    currentAvatarThumbnailImageUrl?: string;
+    currentAvatarImageUrl?: string;
+    location: string;
+};
+
+type VrcFavoriteApi = {
+    favoriteId: string;
+    tags?: string[];
+};
+
+type VrcUserApi = {
+    id: string;
+    displayName: string;
+    statusDescription?: string;
+    userIcon?: string;
+    profilePicOverride?: string;
+    currentAvatarThumbnailImageUrl?: string;
+    currentAvatarImageUrl?: string;
+    last_login?: string;
+    last_activity?: string;
+};
+
+type VrcWorldApi = {
+    name?: string;
+    thumbnailImageUrl?: string;
+};
+
+type VrcGroupApi = {
+    name?: string;
+};
+
+type VrcInstanceApi = {
+    n_users?: number;
+    userCount?: number;
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null;
+
+const parseFriendArray = (value: unknown): VrcFriendApi[] => {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is VrcFriendApi =>
+        isObject(item) && typeof item.id === 'string' && typeof item.displayName === 'string' && typeof item.location === 'string'
+    );
+};
+
+const parseFavoriteArray = (value: unknown): VrcFavoriteApi[] => {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is VrcFavoriteApi =>
+        isObject(item) && typeof item.favoriteId === 'string'
+    );
+};
+
+const parseUser = (value: unknown): VrcUserApi | null => {
+    if (!isObject(value)) return null;
+    if (typeof value.id !== 'string' || typeof value.displayName !== 'string') return null;
+    return value as VrcUserApi;
+};
+
+const parseWorld = (value: unknown): VrcWorldApi | null =>
+    isObject(value) ? (value as VrcWorldApi) : null;
+
+const parseGroup = (value: unknown): VrcGroupApi | null =>
+    isObject(value) ? (value as VrcGroupApi) : null;
+
+const parseInstance = (value: unknown): VrcInstanceApi | null =>
+    isObject(value) ? (value as VrcInstanceApi) : null;
+
 
 export async function GET(req: NextRequest) {
     // Rate limiting check
@@ -34,7 +109,7 @@ export async function GET(req: NextRequest) {
 
     try {
         // Fetch ALL Online Friends with pagination
-        let allFriends: any[] = [];
+        let allFriends: VrcFriendApi[] = [];
         let friendOffset = 0;
         let friendsHasMore = true;
 
@@ -57,8 +132,8 @@ export async function GET(req: NextRequest) {
                     break;
                 }
 
-                const pageFriends = await res.json();
-                if (Array.isArray(pageFriends) && pageFriends.length > 0) {
+                const pageFriends = parseFriendArray(await res.json());
+                if (pageFriends.length > 0) {
                     allFriends = allFriends.concat(pageFriends);
                     if (pageFriends.length < 100) {
                         friendsHasMore = false; // Less than 100 means end of list
@@ -68,8 +143,8 @@ export async function GET(req: NextRequest) {
                 } else {
                     friendsHasMore = false;
                 }
-            } catch (e) {
-                console.error('Error fetching friends page', e);
+            } catch (error: unknown) {
+                console.error('Error fetching friends page', error);
                 friendsHasMore = false;
                 if (allFriends.length === 0) return NextResponse.json({ error: 'Internal Error' }, { status: 500 });
             }
@@ -90,9 +165,9 @@ export async function GET(req: NextRequest) {
             try {
                 const favRes = await fetch(`${API_BASE}/favorites?type=friend&n=100&offset=${offset}`, { headers });
                 if (favRes.ok) {
-                    const favs = await favRes.json();
-                    if (Array.isArray(favs) && favs.length > 0) {
-                        favs.forEach((fav: any) => {
+                    const favs = parseFavoriteArray(await favRes.json());
+                    if (favs.length > 0) {
+                        favs.forEach((fav) => {
                             favoriteIds.add(fav.favoriteId);
                             // Extract favorite group from tags (e.g., ["group_0"])
                             if (fav.tags && Array.isArray(fav.tags) && fav.tags.length > 0) {
@@ -111,8 +186,8 @@ export async function GET(req: NextRequest) {
                     console.error(`[FriendsAPI] Failed to fetch favorites offset=${offset}`, favRes.status);
                     hasMore = false;
                 }
-            } catch (e) {
-                console.error('[FriendsAPI] Error fetching favorites', e);
+            } catch (error: unknown) {
+                console.error('[FriendsAPI] Error fetching favorites', error);
                 hasMore = false;
             }
         }
@@ -121,8 +196,8 @@ export async function GET(req: NextRequest) {
 
         // Split friends into favorites and non-favorites
         // For non-favorites, only include those with visible locations (not private/offline)
-        const activeFavoriteFriends = friends.filter((f: any) => favoriteIds.has(f.id));
-        const activeNonFavoriteFriends = friends.filter((f: any) => {
+        const activeFavoriteFriends = friends.filter((f) => favoriteIds.has(f.id));
+        const activeNonFavoriteFriends = friends.filter((f) => {
             if (favoriteIds.has(f.id)) return false;  // Already in favorites
             if (!f.location || f.location === 'offline' || f.location === 'private') return false;
             return true;  // Has visible location
@@ -137,13 +212,13 @@ export async function GET(req: NextRequest) {
         // Fetch offline favorite friends
         const offlineFavoriteIds = new Set<string>();
         favoriteIds.forEach(id => {
-            if (!friends.some((f: any) => f.id === id)) {
+            if (!friends.some((f) => f.id === id)) {
                 offlineFavoriteIds.add(id);
             }
         });
 
         // Fetch offline favorites info in batches
-        const offlineFavoriteFriends: any[] = [];
+        const offlineFavoriteFriends: VrcUserApi[] = [];
         const offlineFavoriteIdList = Array.from(offlineFavoriteIds);
         
         if (offlineFavoriteIdList.length > 0) {
@@ -155,10 +230,12 @@ export async function GET(req: NextRequest) {
                     try {
                         const userRes = await fetch(`${API_BASE}/users/${userId}`, { headers });
                         if (userRes.ok) {
-                            const userData = await userRes.json();
-                            offlineFavoriteFriends.push(userData);
+                            const userData = parseUser(await userRes.json());
+                            if (userData) {
+                                offlineFavoriteFriends.push(userData);
+                            }
                         }
-                    } catch (e) {
+                    } catch {
                         console.error(`Failed to fetch offline favorite ${userId}`);
                     }
                 }));
@@ -171,7 +248,7 @@ export async function GET(req: NextRequest) {
 
         // Create a map of all friends for quick lookup (for instance owner names)
         const allFriendsMap = new Map<string, string>();
-        friends.forEach((f: any) => allFriendsMap.set(f.id, f.displayName));
+        friends.forEach((f) => allFriendsMap.set(f.id, f.displayName));
 
         // Helper function to parse instance info
         const parseLocation = (location: string) => {
@@ -214,7 +291,7 @@ export async function GET(req: NextRequest) {
         // Extract unique world IDs and group IDs from all active friends
         const worldIds = new Set<string>();
         const groupIds = new Set<string>();
-        allActiveFriends.forEach((f: any) => {
+        allActiveFriends.forEach((f) => {
             if (typeof f.location === 'string' && f.location.startsWith('wrld_')) {
                 const wid = f.location.split(':')[0];
                 worldIds.add(wid);
@@ -226,7 +303,7 @@ export async function GET(req: NextRequest) {
         });
 
         // Fetch world details with BATCHING to avoid 429 Rate Limits
-        const worldMap = new Map<string, any>();
+        const worldMap = new Map<string, VrcWorldApi>();
         const worldIdList = Array.from(worldIds);
 
         console.log(`[FriendsAPI] Fetching info for ${worldIdList.length} unique worlds (Batch Size: ${BATCH_SIZE})`);
@@ -237,10 +314,12 @@ export async function GET(req: NextRequest) {
                 try {
                     const wRes = await fetch(`${API_BASE}/worlds/${wid}`, { headers });
                     if (wRes.ok) {
-                        const wData = await wRes.json();
-                        worldMap.set(wid, wData);
+                        const wData = parseWorld(await wRes.json());
+                        if (wData) {
+                            worldMap.set(wid, wData);
+                        }
                     }
-                } catch (e) {
+                } catch {
                     console.error(`Failed to fetch world ${wid}`);
                 }
             }));
@@ -251,7 +330,7 @@ export async function GET(req: NextRequest) {
         }
 
         // Fetch group details
-        const groupMap = new Map<string, any>();
+        const groupMap = new Map<string, VrcGroupApi>();
         const groupIdList = Array.from(groupIds);
         
         console.log(`[FriendsAPI] Fetching info for ${groupIdList.length} unique groups`);
@@ -262,10 +341,12 @@ export async function GET(req: NextRequest) {
                 try {
                     const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
                     if (gRes.ok) {
-                        const gData = await gRes.json();
-                        groupMap.set(gid, gData);
+                        const gData = parseGroup(await gRes.json());
+                        if (gData) {
+                            groupMap.set(gid, gData);
+                        }
                     }
-                } catch (e) {
+                } catch {
                     console.error(`Failed to fetch group ${gid}`);
                 }
             }));
@@ -277,14 +358,14 @@ export async function GET(req: NextRequest) {
 
         // Collect unique instance locations (for fetching instance user counts)
         const instanceLocations = new Set<string>();
-        allActiveFriends.forEach((f: any) => {
+        allActiveFriends.forEach((f) => {
             if (f.location && f.location.startsWith('wrld_') && !f.location.includes('private')) {
                 instanceLocations.add(f.location);
             }
         });
 
         // Fetch instance details to get total user count
-        const instanceMap = new Map<string, any>();
+        const instanceMap = new Map<string, VrcInstanceApi>();
         const instanceList = Array.from(instanceLocations);
         
         console.log(`[FriendsAPI] Fetching info for ${instanceList.length} unique instances`);
@@ -296,10 +377,12 @@ export async function GET(req: NextRequest) {
                     // Instance API format: /instances/{worldId}:{instanceId}
                     const instRes = await fetch(`${API_BASE}/instances/${loc}`, { headers });
                     if (instRes.ok) {
-                        const instData = await instRes.json();
-                        instanceMap.set(loc, instData);
+                        const instData = parseInstance(await instRes.json());
+                        if (instData) {
+                            instanceMap.set(loc, instData);
+                        }
                     }
-                } catch (e) {
+                } catch {
                     console.error(`Failed to fetch instance ${loc}`);
                 }
             }));
@@ -311,7 +394,7 @@ export async function GET(req: NextRequest) {
 
         // Collect instance owner IDs that are not in friends list
         const nonFriendOwnerIds = new Set<string>();
-        allActiveFriends.forEach((f: any) => {
+        allActiveFriends.forEach((f) => {
             const instanceInfo = parseLocation(f.location);
             if (instanceInfo.ownerId && !allFriendsMap.has(instanceInfo.ownerId)) {
                 nonFriendOwnerIds.add(instanceInfo.ownerId);
@@ -331,10 +414,12 @@ export async function GET(req: NextRequest) {
                     try {
                         const userRes = await fetch(`${API_BASE}/users/${userId}`, { headers });
                         if (userRes.ok) {
-                            const userData = await userRes.json();
-                            ownerMap.set(userId, userData.displayName);
+                            const userData = parseUser(await userRes.json());
+                            if (userData) {
+                                ownerMap.set(userId, userData.displayName);
+                            }
                         }
-                    } catch (e) {
+                    } catch {
                         console.error(`Failed to fetch user ${userId}`);
                     }
                 }));
@@ -346,8 +431,8 @@ export async function GET(req: NextRequest) {
         }
 
         // Transform all active friends
-        const simplifiedFriends = allActiveFriends.map((f: any) => {
-            let worldName = f.location;
+        const simplifiedFriends = allActiveFriends.map((f) => {
+            let worldName = f.location || 'Unknown';
             let worldImageUrl = null;
             let isPrivate = false;
             const isFavorite = favoriteIds.has(f.id);
@@ -365,7 +450,7 @@ export async function GET(req: NextRequest) {
             // Get group name from group map
             if (instanceInfo.groupId) {
                 const gData = groupMap.get(instanceInfo.groupId);
-                if (gData) groupName = gData.name;
+                if (gData) groupName = gData.name || null;
             }
 
             if (f.location === 'private') {
@@ -376,7 +461,7 @@ export async function GET(req: NextRequest) {
                 const wData = worldMap.get(wid);
 
                 if (wData) {
-                    worldName = wData.name;
+                    worldName = wData.name || worldName;
                     worldImageUrl = wData.thumbnailImageUrl;
                 }
 
@@ -417,7 +502,7 @@ export async function GET(req: NextRequest) {
         });
 
         // Transform offline favorite friends
-        const simplifiedOfflineFriends = offlineFavoriteFriends.map((f: any) => {
+        const simplifiedOfflineFriends = offlineFavoriteFriends.map((f) => {
             const favoriteGroup = favoriteGroups.get(f.id) || null;
             return {
                 id: f.id,
@@ -448,7 +533,7 @@ export async function GET(req: NextRequest) {
         });
 
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('API Error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }

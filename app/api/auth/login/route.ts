@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { checkRateLimit, rateLimitResponse, addRateLimitHeaders, resetRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,17 +10,24 @@ const API_BASE = 'https://api.vrchat.cloud/api/1';
 // Even if not strictly documented in some places, it is enforced by their WAF.
 const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
-export async function GET(req: NextRequest) {
+type HeadersWithSetCookie = Headers & {
+    getSetCookie?: () => string[];
+};
+
+export async function GET() {
     try {
         const res = await fetch(`${API_BASE}/config`, {
             headers: { 'User-Agent': USER_AGENT }
         });
         if (res.ok) {
-            const data = await res.json();
-            return NextResponse.json({ status: 'ok', message: 'VRChat API Reachable', appName: data.appName });
+            const data: unknown = await res.json();
+            const appName = typeof data === 'object' && data !== null && 'appName' in data && typeof data.appName === 'string'
+                ? data.appName
+                : undefined;
+            return NextResponse.json({ status: 'ok', message: 'VRChat API Reachable', appName });
         }
         return NextResponse.json({ status: 'error', code: res.status }, { status: 502 });
-    } catch (e: any) {
+    } catch {
         return NextResponse.json({ status: 'error', message: 'Service unavailable' }, { status: 500 });
     }
 }
@@ -33,8 +40,11 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const body = await req.json();
-        const { username, password } = body;
+        const body: unknown = await req.json();
+        if (!body || typeof body !== 'object') {
+            return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+        }
+        const { username, password } = body as { username?: unknown; password?: unknown };
 
         // Input validation
         if (!username || typeof username !== 'string' || username.length > 100) {
@@ -69,15 +79,11 @@ export async function POST(req: NextRequest) {
             headers: requestHeaders
         });
 
-        // Handle Cookie Extraction - using standard API if available
-        let cookieStrictVerify = false; // Flag to see if we need to manually relax cookies
-
         // Helper to get cookies from response
         const getCookies = (response: Response): string[] => {
-            // @ts-ignore: getSetCookie is available in newer Node/Next environments
-            if (typeof response.headers.getSetCookie === 'function') {
-                // @ts-ignore
-                return response.headers.getSetCookie();
+            const headers = response.headers as HeadersWithSetCookie;
+            if (typeof headers.getSetCookie === 'function') {
+                return headers.getSetCookie();
             }
             // Fallback for older environments: simplistic split
             const raw = response.headers.get('set-cookie');
@@ -187,8 +193,8 @@ export async function POST(req: NextRequest) {
 
         return response;
 
-    } catch (e: any) {
-        console.error('[Login] Exception:', e);
+    } catch (error: unknown) {
+        console.error('[Login] Exception:', error);
         // Don't expose internal error details to client
         return NextResponse.json({ error: 'An error occurred during login' }, { status: 500 });
     }

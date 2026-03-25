@@ -1,11 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { cookies, headers } from 'next/headers';
 
-export async function POST(req: NextRequest) {
+export async function POST() {
     // Basic CSRF protection - verify request origin
     const headersList = await headers();
     const origin = headersList.get('origin');
-    const referer = headersList.get('referer');
     const host = headersList.get('host');
 
     // In production, verify the origin matches our host

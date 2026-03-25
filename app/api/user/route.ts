@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
 
         const data = await apiRes.json();
         return NextResponse.json(data);
-    } catch (e) {
+    } catch (error: unknown) {
+        console.error('[UserAPI] Error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 }

@@ -1,19 +1,31 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { usePathname } from 'next/navigation';
 
 // Types
 type Friend = {
     id: string;
-    displayName: string;
-    userIcon: string;
+    displayName?: string;
+    name: string;
+    userIcon?: string;
+    icon?: string;
     status: string;
+    statusMsg?: string;
     location: string;
     worldName?: string;
+    worldImageUrl?: string;
     favoriteGroup?: string;
     joinedAt?: number;
-    [key: string]: any;
+    isPrivate?: boolean;
+    isFavorite?: boolean;
+    instanceType?: string;
+    ownerId?: string;
+    ownerName?: string;
+    groupId?: string;
+    groupName?: string;
+    instanceUserCount?: number;
+    last_login?: string;
+    last_activity?: string;
 };
 
 type WorldInfo = {
@@ -40,6 +52,31 @@ type InstanceGroup = {
     groupName?: string;
     ownerId?: string;
     ownerName?: string;
+};
+
+type TimestampEntry = {
+    location: string;
+    joinedAt: number;
+};
+
+type ActiveFriendsResponse = {
+    friends?: Friend[];
+    offlineFriends?: Friend[];
+};
+
+const WORLD_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null;
+
+const isTimestampEntry = (value: unknown): value is TimestampEntry => {
+    if (!isObject(value)) return false;
+    return typeof value.location === 'string' && typeof value.joinedAt === 'number';
+};
+
+const isWorldInfo = (value: unknown): value is WorldInfo => {
+    if (!isObject(value)) return false;
+    return typeof value.id === 'string' && typeof value.name === 'string' && typeof value.cachedAt === 'number';
 };
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
@@ -142,13 +179,12 @@ const addLogEntry = (type: string, user: string, detail: string, color: string) 
         const existing = JSON.parse(localStorage.getItem('vrc_logs') || '[]');
         const updated = [newLog, ...existing].slice(0, 500);
         localStorage.setItem('vrc_logs', JSON.stringify(updated));
-    } catch (e) {
-        console.error('Log save error', e);
+    } catch (error: unknown) {
+        console.error('Log save error', error);
     }
 };
 
 export const FriendsProvider = ({ children }: { children: React.ReactNode }) => {
-    const pathname = usePathname();
     const [instances, setInstances] = useState<InstanceGroup[]>([]);
     const [offlineFriends, setOfflineFriends] = useState<Friend[]>([]);
     const [loading, setLoading] = useState(true);
@@ -157,50 +193,54 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     const [wsConnectionState, setWsConnectionState] = useState<ConnectionState>('disconnected');
 
     // Refs for data management
-    const friendsDataRef = useRef<Map<string, any>>(new Map());
+    const friendsDataRef = useRef<Map<string, Friend>>(new Map());
     const favoriteIdsRef = useRef<Set<string>>(new Set());
     const favoriteGroupsRef = useRef<Map<string, string>>(new Map());
-    const locationTimestampsRef = useRef<Map<string, { location: string; joinedAt: number }>>(new Map());
+    const locationTimestampsRef = useRef<Map<string, TimestampEntry>>(new Map());
     const worldCacheRef = useRef<Map<string, WorldInfo>>(new Map());
     const eventSourceRef = useRef<EventSource | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isFirstLoadRef = useRef(true);
-
-    const WORLD_CACHE_TTL = 24 * 60 * 60 * 1000;
 
     // Load cached data from localStorage
     useEffect(() => {
         try {
             const savedTimestamps = localStorage.getItem('vrc_location_timestamps');
             if (savedTimestamps) {
-                const parsed = JSON.parse(savedTimestamps);
-                Object.entries(parsed).forEach(([id, data]: [string, any]) => {
-                    locationTimestampsRef.current.set(id, data);
-                });
+                const parsed: unknown = JSON.parse(savedTimestamps);
+                if (isObject(parsed)) {
+                    Object.entries(parsed).forEach(([id, data]) => {
+                        if (isTimestampEntry(data)) {
+                            locationTimestampsRef.current.set(id, data);
+                        }
+                    });
+                }
             }
 
             const savedWorldCache = localStorage.getItem('vrc_world_cache');
             if (savedWorldCache) {
-                const parsed = JSON.parse(savedWorldCache);
+                const parsed: unknown = JSON.parse(savedWorldCache);
                 const now = Date.now();
-                Object.entries(parsed).forEach(([id, data]: [string, any]) => {
-                    if (data.cachedAt && (now - data.cachedAt) < WORLD_CACHE_TTL) {
-                        worldCacheRef.current.set(id, data as WorldInfo);
-                    }
-                });
+                if (isObject(parsed)) {
+                    Object.entries(parsed).forEach(([id, data]) => {
+                        if (isWorldInfo(data) && (now - data.cachedAt) < WORLD_CACHE_TTL) {
+                            worldCacheRef.current.set(id, data);
+                        }
+                    });
+                }
             }
-        } catch (e) {
-            console.error('[FriendsProvider] Failed to load cached data:', e);
+        } catch (error: unknown) {
+            console.error('[FriendsProvider] Failed to load cached data:', error);
         }
     }, []);
 
     // Save functions
     const saveTimestamps = useCallback(() => {
         try {
-            const obj: Record<string, any> = {};
+            const obj: Record<string, TimestampEntry> = {};
             locationTimestampsRef.current.forEach((data, id) => obj[id] = data);
             localStorage.setItem('vrc_location_timestamps', JSON.stringify(obj));
-        } catch (e) { console.error('Failed to save timestamps:', e); }
+        } catch (error: unknown) { console.error('Failed to save timestamps:', error); }
     }, []);
 
     const saveWorldCache = useCallback(() => {
@@ -208,7 +248,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             const obj: Record<string, WorldInfo> = {};
             worldCacheRef.current.forEach((data, id) => obj[id] = data);
             localStorage.setItem('vrc_world_cache', JSON.stringify(obj));
-        } catch (e) { console.error('Failed to save world cache:', e); }
+        } catch (error: unknown) { console.error('Failed to save world cache:', error); }
     }, []);
 
     // Fetch world info
@@ -219,18 +259,21 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         try {
             const res = await fetch(`/api/worlds/${worldId}`, { credentials: 'include' });
             if (res.ok) {
-                const data = await res.json();
+                const data: unknown = await res.json();
+                if (!isObject(data) || typeof data.id !== 'string' || typeof data.name !== 'string') {
+                    return null;
+                }
                 const worldInfo: WorldInfo = {
                     id: data.id,
                     name: data.name,
-                    thumbnailImageUrl: data.thumbnailImageUrl,
+                    thumbnailImageUrl: typeof data.thumbnailImageUrl === 'string' ? data.thumbnailImageUrl : undefined,
                     cachedAt: Date.now()
                 };
                 worldCacheRef.current.set(worldId, worldInfo);
                 saveWorldCache();
                 return worldInfo;
             }
-        } catch (e) { console.error(`Failed to fetch world ${worldId}:`, e); }
+        } catch (error: unknown) { console.error(`Failed to fetch world ${worldId}:`, error); }
         return null;
     }, [saveWorldCache]);
 
@@ -240,7 +283,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         const friendMap = new Map<string, string>();
         const now = Date.now();
 
-        friendsDataRef.current.forEach((f, id) => friendMap.set(id, f.name));
+        friendsDataRef.current.forEach((f, id) => friendMap.set(id, f.name || f.displayName || id));
 
         friendsDataRef.current.forEach((f) => {
             const loc = f.location || "offline";
@@ -358,14 +401,16 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         try {
             const res = await fetch('/api/friends/active', { credentials: 'include' });
             if (res.ok) {
-                const data = await res.json();
+                const data: ActiveFriendsResponse = await res.json();
                 setIsAuthenticated(true);
                 isAuthenticatedRef.current = true; // Set ref immediately for SSE connection
 
-                const currentFriendsMap = new Map();
-                if (data.friends && Array.isArray(data.friends)) {
-                    data.friends.forEach((f: any) => currentFriendsMap.set(f.id, f));
-                }
+                const currentFriendsMap = new Map<string, Friend>();
+                (data.friends || []).forEach((f) => {
+                    if (f?.id) {
+                        currentFriendsMap.set(f.id, f);
+                    }
+                });
 
                 const now = Date.now();
                 let worldCacheChanged = false;
@@ -406,15 +451,16 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 isFirstLoadRef.current = false;
 
                 // Handle offline friends (from API offlineFriends + friends with location: "offline")
-                const allOfflineFavorites: any[] = [];
+                const allOfflineFavorites: Friend[] = [];
                 
                 // Add friends from offlineFriends array (truly offline)
-                if (data.offlineFriends && Array.isArray(data.offlineFriends)) {
-                    data.offlineFriends.forEach((f: any) => {
+                (data.offlineFriends || []).forEach((f) => {
+                    if (!f?.id) return;
                         allOfflineFavorites.push({
                             id: f.id,
-                            displayName: f.name,
-                            userIcon: f.icon,
+                            name: f.name || f.displayName || 'Unknown',
+                            displayName: f.name || f.displayName,
+                            userIcon: f.icon || f.userIcon,
                             status: f.status || 'offline',
                             location: 'offline',
                             worldName: 'Offline',
@@ -423,16 +469,15 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                             last_activity: f.last_activity,
                         });
                     });
-                }
                 
                 // Add favorite friends with location: "offline" from friends array (Active/web status)
-                if (data.friends && Array.isArray(data.friends)) {
-                    data.friends.forEach((f: any) => {
+                (data.friends || []).forEach((f) => {
                         if (f.isFavorite && f.location === 'offline') {
                             allOfflineFavorites.push({
                                 id: f.id,
-                                displayName: f.name,
-                                userIcon: f.icon,
+                                name: f.name || f.displayName || 'Unknown',
+                                displayName: f.name || f.displayName,
+                                userIcon: f.icon || f.userIcon,
                                 status: f.status || 'active',
                                 location: 'offline',
                                 worldName: 'Offline',
@@ -440,10 +485,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                             });
                         }
                     });
-                }
                 
                 // Sort by favorite group
-                allOfflineFavorites.sort((a: any, b: any) => {
+                allOfflineFavorites.sort((a, b) => {
                     const aGroup = parseInt(a.favoriteGroup?.replace('group_', '') || '999', 10);
                     const bGroup = parseInt(b.favoriteGroup?.replace('group_', '') || '999', 10);
                     return aGroup - bGroup;
@@ -456,8 +500,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 setInstances([]);
                 setOfflineFriends([]);
             }
-        } catch (e) {
-            console.error(e);
+        } catch (error: unknown) {
+            console.error(error);
             isAuthenticatedRef.current = false; // Set ref immediately on error
             setInstances([]);
         } finally {
@@ -466,21 +510,25 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     }, [rebuildInstances, saveTimestamps, saveWorldCache]);
 
     // Handle SSE events
-    const handleSSEEvent = useCallback(async (eventType: string, data: any) => {
+    const handleSSEEvent = useCallback(async (eventType: string, data: unknown) => {
+        if (!isObject(data)) return;
         const now = Date.now();
 
         switch (eventType) {
             case 'friend-online': {
-                const userId = data.userId;
-                const user = data.user;
+                const userId = typeof data.userId === 'string' ? data.userId : null;
+                const location = typeof data.location === 'string' ? data.location : null;
+                const user = isObject(data.user) ? data.user : null;
+                if (!userId || !location || !user || typeof user.displayName !== 'string') break;
                 const isFavorite = favoriteIdsRef.current.has(userId);
                 const favoriteGroup = favoriteGroupsRef.current.get(userId);
 
-                let worldName = data.world?.name;
-                let worldImageUrl = data.world?.thumbnailImageUrl;
+                const world = isObject(data.world) ? data.world : null;
+                let worldName = typeof world?.name === 'string' ? world.name : undefined;
+                let worldImageUrl = typeof world?.thumbnailImageUrl === 'string' ? world.thumbnailImageUrl : undefined;
 
-                if (!worldName && data.location?.startsWith('wrld_')) {
-                    const worldId = data.location.split(':')[0];
+                if (!worldName && location.startsWith('wrld_')) {
+                    const worldId = location.split(':')[0];
                     const cached = worldCacheRef.current.get(worldId);
                     if (cached) {
                         worldName = cached.name;
@@ -489,7 +537,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         fetchWorldInfo(worldId).then((info) => {
                             if (info) {
                                 const friend = friendsDataRef.current.get(userId);
-                                if (friend?.location === data.location) {
+                                if (friend?.location === location) {
                                     friend.worldName = info.name;
                                     friend.worldImageUrl = info.thumbnailImageUrl;
                                     friendsDataRef.current.set(userId, friend);
@@ -501,31 +549,35 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 }
 
                 // Get instance type from event data or parse from location
-                const info = parseInstanceInfo(data.location);
+                const info = parseInstanceInfo(location);
                 let instanceType = info?.type || 'Public';
+                const instance = isObject(data.instance) ? data.instance : null;
                 // Use instance type from VRChat API if available (more accurate)
-                if (data.instance?.type) {
-                    instanceType = convertInstanceType(data.instance.type);
+                if (typeof instance?.type === 'string') {
+                    instanceType = convertInstanceType(instance.type);
                 }
 
                 friendsDataRef.current.set(userId, {
                     id: userId,
                     name: user.displayName,
-                    status: user.status || 'active',
-                    statusMsg: user.statusDescription,
-                    icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || '',
-                    location: data.location,
-                    worldName: worldName || (data.location === 'private' ? 'Private World' : undefined),
+                    status: typeof user.status === 'string' ? user.status : 'active',
+                    statusMsg: typeof user.statusDescription === 'string' ? user.statusDescription : undefined,
+                    icon: (typeof user.userIcon === 'string' && user.userIcon)
+                        || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
+                        || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
+                        || '',
+                    location,
+                    worldName: worldName || (location === 'private' ? 'Private World' : undefined),
                     worldImageUrl,
-                    isPrivate: data.location === 'private',
+                    isPrivate: location === 'private',
                     isFavorite,
                     favoriteGroup,
                     instanceType,
-                    ownerId: info?.creatorId || data.instance?.ownerId,
-                    groupId: info?.groupId || data.instance?.groupId,
+                    ownerId: info?.creatorId || (typeof instance?.ownerId === 'string' ? instance.ownerId : undefined),
+                    groupId: info?.groupId || (typeof instance?.groupId === 'string' ? instance.groupId : undefined),
                 });
 
-                locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
+                locationTimestampsRef.current.set(userId, { location, joinedAt: now });
                 saveTimestamps();
                 // Only log favorite friends
                 if (isFavorite) {
@@ -536,33 +588,38 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             }
 
             case 'friend-offline': {
-                const friend = friendsDataRef.current.get(data.userId);
+                const userId = typeof data.userId === 'string' ? data.userId : null;
+                if (!userId) break;
+                const friend = friendsDataRef.current.get(userId);
                 // Only log favorite friends
-                if (friend?.isFavorite) addLogEntry('Offline', friend.name, 'Went Offline', 'text-slate-500');
-                friendsDataRef.current.delete(data.userId);
-                locationTimestampsRef.current.delete(data.userId);
+                if (friend?.isFavorite) addLogEntry('Offline', friend.name || friend.displayName || userId, 'Went Offline', 'text-slate-500');
+                friendsDataRef.current.delete(userId);
+                locationTimestampsRef.current.delete(userId);
                 saveTimestamps();
                 rebuildInstances();
                 break;
             }
 
             case 'friend-location': {
-                const userId = data.userId;
-                const user = data.user;
+                const userId = typeof data.userId === 'string' ? data.userId : null;
+                const location = typeof data.location === 'string' ? data.location : null;
+                const user = isObject(data.user) ? data.user : null;
+                if (!userId || !location || !user || typeof user.displayName !== 'string') break;
                 const existingFriend = friendsDataRef.current.get(userId);
                 const isFavorite = existingFriend?.isFavorite ?? favoriteIdsRef.current.has(userId);
                 const favoriteGroup = existingFriend?.favoriteGroup ?? favoriteGroupsRef.current.get(userId);
                 const previousLocation = existingFriend?.location;
-                const hasLocationChanged = previousLocation !== data.location;
+                const hasLocationChanged = previousLocation !== location;
 
                 // Get previous location info
                 const prevWorldName = existingFriend?.worldName || 'Unknown';
 
-                let worldName = data.world?.name;
-                let worldImageUrl = data.world?.thumbnailImageUrl;
+                const world = isObject(data.world) ? data.world : null;
+                let worldName = typeof world?.name === 'string' ? world.name : undefined;
+                let worldImageUrl = typeof world?.thumbnailImageUrl === 'string' ? world.thumbnailImageUrl : undefined;
 
-                if (!worldName && data.location?.startsWith('wrld_')) {
-                    const worldId = data.location.split(':')[0];
+                if (!worldName && location.startsWith('wrld_')) {
+                    const worldId = location.split(':')[0];
                     const cached = worldCacheRef.current.get(worldId);
                     if (cached) {
                         worldName = cached.name;
@@ -571,7 +628,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         fetchWorldInfo(worldId).then((info) => {
                             if (info) {
                                 const friend = friendsDataRef.current.get(userId);
-                                if (friend?.location === data.location) {
+                                if (friend?.location === location) {
                                     friend.worldName = info.name;
                                     friend.worldImageUrl = info.thumbnailImageUrl;
                                     friendsDataRef.current.set(userId, friend);
@@ -583,39 +640,44 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 }
 
                 // Get instance type from event data or parse from location
-                const info = parseInstanceInfo(data.location);
+                const info = parseInstanceInfo(location);
                 let instanceType = info?.type || 'Public';
+                const instance = isObject(data.instance) ? data.instance : null;
                 // Use instance type from VRChat API if available (more accurate for new instances)
-                if (data.instance?.type) {
-                    instanceType = convertInstanceType(data.instance.type);
+                if (typeof instance?.type === 'string') {
+                    instanceType = convertInstanceType(instance.type);
                 }
 
                 friendsDataRef.current.set(userId, {
                     ...existingFriend,
                     id: userId,
                     name: user.displayName,
-                    status: user.status || existingFriend?.status || 'active',
-                    statusMsg: user.statusDescription || existingFriend?.statusMsg,
-                    icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || existingFriend?.icon || '',
-                    location: data.location,
-                    worldName: worldName || (data.location === 'private' ? 'Private World' : undefined),
+                    status: (typeof user.status === 'string' && user.status) || existingFriend?.status || 'active',
+                    statusMsg: (typeof user.statusDescription === 'string' && user.statusDescription) || existingFriend?.statusMsg,
+                    icon: (typeof user.userIcon === 'string' && user.userIcon)
+                        || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
+                        || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
+                        || existingFriend?.icon
+                        || '',
+                    location,
+                    worldName: worldName || (location === 'private' ? 'Private World' : undefined),
                     worldImageUrl,
-                    isPrivate: data.location === 'private',
+                    isPrivate: location === 'private',
                     isFavorite,
                     favoriteGroup,
                     instanceType,
-                    ownerId: info?.creatorId || data.instance?.ownerId,
-                    groupId: info?.groupId || data.instance?.groupId,
+                    ownerId: info?.creatorId || (typeof instance?.ownerId === 'string' ? instance.ownerId : undefined),
+                    groupId: info?.groupId || (typeof instance?.groupId === 'string' ? instance.groupId : undefined),
                 });
 
                 if (hasLocationChanged) {
-                    locationTimestampsRef.current.set(userId, { location: data.location, joinedAt: now });
+                    locationTimestampsRef.current.set(userId, { location, joinedAt: now });
                     saveTimestamps();
                 }
 
                 // Only log favorite friends when the location actually changed
                 if (isFavorite && hasLocationChanged) {
-                    const newWorldName = worldName || (data.location === 'private' ? 'Private World' : existingFriend?.worldName || 'Unknown');
+                    const newWorldName = worldName || (location === 'private' ? 'Private World' : existingFriend?.worldName || 'Unknown');
                     const logDetail = `${prevWorldName} → ${newWorldName}`;
                     addLogEntry('GPS', user.displayName, logDetail, 'text-orange-400');
                 }
@@ -624,16 +686,19 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             }
 
             case 'friend-update': {
-                const userId = data.userId;
-                const user = data.user;
+                const userId = typeof data.userId === 'string' ? data.userId : null;
+                const user = isObject(data.user) ? data.user : null;
+                if (!userId || !user || typeof user.displayName !== 'string') break;
                 const existingFriend = friendsDataRef.current.get(userId);
 
                 if (existingFriend) {
                     const isFavorite = existingFriend.isFavorite;
                     const prevStatus = existingFriend.status;
                     const prevStatusMsg = existingFriend.statusMsg;
-                    const newStatus = user.status || existingFriend.status;
-                    const newStatusMsg = user.statusDescription ?? existingFriend.statusMsg;
+                    const newStatus = typeof user.status === 'string' ? user.status : existingFriend.status;
+                    const newStatusMsg = typeof user.statusDescription === 'string'
+                        ? user.statusDescription
+                        : existingFriend.statusMsg;
 
                     // Log status change for favorites
                     if (isFavorite && prevStatus && newStatus && prevStatus !== newStatus) {
@@ -650,7 +715,10 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         name: user.displayName,
                         status: newStatus,
                         statusMsg: newStatusMsg,
-                        icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || existingFriend.icon,
+                        icon: (typeof user.userIcon === 'string' && user.userIcon)
+                            || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
+                            || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
+                            || existingFriend.icon,
                     });
                     rebuildInstances();
                 }
@@ -693,17 +761,17 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         const eventSource = new EventSource('/api/friends/stream');
         eventSourceRef.current = eventSource;
 
-        eventSource.addEventListener('connected', (e) => {
+        eventSource.addEventListener('connected', () => {
             console.log('[FriendsProvider] SSE connected');
             setWsConnectionState('connected');
         });
 
-        eventSource.addEventListener('disconnected', (e) => {
+        eventSource.addEventListener('disconnected', () => {
             console.log('[FriendsProvider] SSE disconnected');
             setWsConnectionState('disconnected');
         });
 
-        eventSource.addEventListener('error', (e) => {
+        eventSource.addEventListener('error', () => {
             // Don't reconnect if we're logged out
             if (!isAuthenticatedRef.current) {
                 disconnectSSE();

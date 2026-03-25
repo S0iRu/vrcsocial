@@ -1,24 +1,10 @@
 'use client';
 
-import { Globe, MoreHorizontal, User, Star, Users, ArrowRight, Loader2, RefreshCw, Clock, Wifi, WifiOff, Lock, Plane } from "lucide-react";
+import { Globe, User, Star, Users, Loader2, RefreshCw, Clock, Wifi, WifiOff, Lock, Plane } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useFriends, ConnectionState } from "@/components/providers/FriendsProvider";
 import { useState, useEffect } from "react";
-
-// Types
-type Friend = {
-    id: string;
-    name: string;
-    icon: string;
-    status: string;
-    statusMsg?: string;
-    location: string;
-    worldName?: string;
-    joinedAt?: number;
-    [key: string]: any;
-};
 
 // Format duration from timestamp
 const formatDuration = (joinedAt: number | undefined): string => {
@@ -46,24 +32,6 @@ const formatDuration = (joinedAt: number | undefined): string => {
     return `${minutes}:${paddedSeconds}`;
 };
 
-type InstanceGroup = {
-    id: string;
-    worldName: string;
-    instanceType: string;
-    region: string;
-    userCount: number;           // Number of favorite friends in this instance
-    instanceUserCount?: number;  // Total number of users in this instance
-    friends: Friend[];           // Favorite friends
-    otherFriends: Friend[];      // Non-favorite friends with visible locations
-    creatorId?: string;
-    creatorName?: string;
-    worldImageUrl?: string;
-    groupId?: string;
-    groupName?: string;
-    ownerId?: string;
-    ownerName?: string;
-};
-
 // Get status color (VRChat status values)
 const getStatusColor = (status: string) => {
     const s = (status || '').toLowerCase();
@@ -89,7 +57,6 @@ const getWsStatusDisplay = (state: ConnectionState) => {
 };
 
 export default function FavoritesPage() {
-    const router = useRouter();
     const { instances, offlineFriends, loading, isAuthenticated, lastUpdated, wsConnectionState, refresh } = useFriends();
     
     // Force re-render every second to update duration display
@@ -179,7 +146,7 @@ export default function FavoritesPage() {
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 md:w-12 md:h-12 bg-indigo-500/20 rounded-lg flex items-center justify-center shrink-0 overflow-hidden relative">
                                                     {group.worldImageUrl ? (
-                                                        <img src={group.worldImageUrl} alt={group.worldName} className="w-full h-full object-cover" />
+                                                        <Image src={group.worldImageUrl} alt={group.worldName || 'World'} fill sizes="48px" className="w-full h-full object-cover" unoptimized />
                                                     ) : (
                                                         <Globe className="w-5 h-5 md:w-6 md:h-6 text-indigo-400" />
                                                     )}
@@ -243,7 +210,7 @@ export default function FavoritesPage() {
                                                         <div className="relative">
                                                             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-yellow-500/30 group-hover/friend:ring-indigo-500/50 transition-all">
                                                                 {friend.icon ? (
-                                                                    <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                                    <Image src={friend.icon} alt={friend.name} width={40} height={40} className="w-full h-full object-cover" unoptimized />
                                                                 ) : (
                                                                     <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
                                                                 )}
@@ -295,7 +262,7 @@ export default function FavoritesPage() {
                                                         <div className="relative">
                                                             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-transparent group-hover/friend:ring-slate-500/50 transition-all">
                                                                 {friend.icon ? (
-                                                                    <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                                    <Image src={friend.icon} alt={friend.name} width={40} height={40} className="w-full h-full object-cover" unoptimized />
                                                                 ) : (
                                                                     <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
                                                                 )}
@@ -347,7 +314,7 @@ export default function FavoritesPage() {
                                 </div>
                                 <div className="glass-card rounded-xl p-3 md:p-4 border-amber-500/20">
                                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 md:gap-3">
-                                        {travelingInstance.friends.map((friend: any) => (
+                                        {travelingInstance.friends.map((friend) => (
                                             <Link
                                                 key={friend.id}
                                                 href={`/friends/${friend.id}`}
@@ -356,7 +323,7 @@ export default function FavoritesPage() {
                                                 <div className="relative mb-2">
                                                     <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-slate-700 overflow-hidden ring-2 ring-amber-500/30 group-hover/friend:ring-amber-400/50 transition-all animate-pulse">
                                                         {friend.icon ? (
-                                                            <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                            <Image src={friend.icon} alt={friend.name} width={48} height={48} className="w-full h-full object-cover" unoptimized />
                                                         ) : (
                                                             <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
                                                         )}
@@ -384,7 +351,7 @@ export default function FavoritesPage() {
                         if (privateFriends.length === 0) return null;
                         
                         // Group by favorite group
-                        const grouped = privateFriends.reduce((acc: Record<string, any[]>, friend: any) => {
+                        const grouped = privateFriends.reduce<Record<string, typeof privateFriends[number][]>>((acc, friend) => {
                             const group = friend.favoriteGroup || 'group_unknown';
                             if (!acc[group]) acc[group] = [];
                             acc[group].push(friend);
@@ -415,10 +382,10 @@ export default function FavoritesPage() {
                                                 <span className="text-xs font-medium text-slate-400">
                                                     Group {parseInt(groupName.replace('group_', ''), 10) + 1 || '?'}
                                                 </span>
-                                                <span className="text-xs text-slate-600">({(friends as any[]).length})</span>
+                                                <span className="text-xs text-slate-600">({friends.length})</span>
                                             </div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 md:gap-2">
-                                                {(friends as any[]).map((friend: any) => (
+                                                {friends.map((friend) => (
                                                     <Link
                                                         key={friend.id}
                                                         href={`/friends/${friend.id}`}
@@ -427,7 +394,7 @@ export default function FavoritesPage() {
                                                         <div className="relative">
                                                             <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-700 overflow-hidden ring-2 ring-yellow-500/30 group-hover/friend:ring-indigo-500/50 transition-all">
                                                                 {friend.icon ? (
-                                                                    <img src={friend.icon} alt={friend.name} className="w-full h-full object-cover" />
+                                                                    <Image src={friend.icon} alt={friend.name} width={40} height={40} className="w-full h-full object-cover" unoptimized />
                                                                 ) : (
                                                                     <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs">IMG</div>
                                                                 )}
@@ -477,7 +444,7 @@ export default function FavoritesPage() {
                             <div className="space-y-4">
                                 {(() => {
                                     // Group offline friends by favorite group
-                                    const grouped = offlineFriends.reduce((acc: Record<string, any[]>, friend: any) => {
+                                    const grouped = offlineFriends.reduce<Record<string, typeof offlineFriends[number][]>>((acc, friend) => {
                                         const group = friend.favoriteGroup || 'group_unknown';
                                         if (!acc[group]) acc[group] = [];
                                         acc[group].push(friend);
@@ -498,10 +465,10 @@ export default function FavoritesPage() {
                                                 <span className="text-xs font-medium text-slate-400">
                                                     Group {parseInt(groupName.replace('group_', ''), 10) + 1 || '?'}
                                                 </span>
-                                                <span className="text-xs text-slate-600">({(friends as any[]).length})</span>
+                                                <span className="text-xs text-slate-600">({friends.length})</span>
                                             </div>
                                             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
-                                                {(friends as any[]).map((friend: any) => (
+                                                {friends.map((friend) => (
                                                     <Link
                                                         key={friend.id}
                                                         href={`/friends/${friend.id}`}
@@ -510,7 +477,7 @@ export default function FavoritesPage() {
                                                         <div className="relative mb-2">
                                                             <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-slate-700 overflow-hidden ring-2 ring-slate-600/30 group-hover/friend:ring-slate-500/50 transition-all">
                                                                 {friend.userIcon ? (
-                                                                    <img src={friend.userIcon} alt={friend.displayName} className="w-full h-full object-cover grayscale" />
+                                                                    <Image src={friend.userIcon} alt={friend.displayName || friend.name} width={48} height={48} className="w-full h-full object-cover grayscale" unoptimized />
                                                                 ) : (
                                                                     <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">IMG</div>
                                                                 )}
@@ -518,7 +485,7 @@ export default function FavoritesPage() {
                                                             <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-slate-500 border-2 border-[#1a1f2e] rounded-full"></div>
                                                         </div>
                                                         <p className="text-[10px] font-medium text-slate-500 group-hover/friend:text-slate-300 truncate max-w-full text-center">
-                                                            {friend.displayName}
+                                                            {friend.displayName || friend.name}
                                                         </p>
                                                     </Link>
                                                 ))}

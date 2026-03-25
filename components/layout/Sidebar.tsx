@@ -1,11 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { Star, History, LogOut, BarChart3 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+type SidebarUser = {
+  displayName?: string;
+  currentAvatarThumbnailImageUrl?: string;
+};
+
 const Sidebar = () => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<SidebarUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,8 +24,10 @@ const Sidebar = () => {
           credentials: 'include'
         });
         if (res.ok) {
-          const data = await res.json();
-          setUser(data);
+          const data: unknown = await res.json();
+          if (data && typeof data === 'object') {
+            setUser(data as SidebarUser);
+          }
         }
       } catch (e) {
         console.error(e);
@@ -86,7 +94,7 @@ const Sidebar = () => {
               <>
                 <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold overflow-hidden shadow-sm border border-white/10 shrink-0">
                   {user?.currentAvatarThumbnailImageUrl ? (
-                    <img src={user.currentAvatarThumbnailImageUrl} alt="User" className="w-full h-full object-cover" />
+                    <Image src={user.currentAvatarThumbnailImageUrl} alt="User" width={40} height={40} className="w-full h-full object-cover" unoptimized />
                   ) : (
                     'U'
                   )}

@@ -5,6 +5,10 @@ import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
 const API_BASE = 'https://api.vrchat.cloud/api/1';
 const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
+type HeadersWithSetCookie = Headers & {
+    getSetCookie?: () => string[];
+};
+
 export async function POST(req: NextRequest) {
     // Rate limiting check - 10 attempts per 15 minutes
     const rateCheck = checkRateLimit(req, 'verify');
@@ -13,8 +17,11 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const body = await req.json();
-        const { code } = body;
+        const body: unknown = await req.json();
+        if (!body || typeof body !== 'object') {
+            return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+        }
+        const { code } = body as { code?: unknown };
 
         // Input validation for 2FA code
         if (!code || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
@@ -64,17 +71,16 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Verification failed' }, { status: 400 });
         }
 
-        const data = await verifyRes.json();
+        const data: unknown = await verifyRes.json();
 
-        if (data.verified) {
+        if (typeof data === 'object' && data !== null && 'verified' in data && data.verified) {
             const response = NextResponse.json({ verified: true });
 
             // Helper to get cookies from response (same as login route)
             const getCookies = (res: Response): string[] => {
-                // @ts-ignore: getSetCookie is available in newer Node/Next environments
-                if (typeof res.headers.getSetCookie === 'function') {
-                    // @ts-ignore
-                    return res.headers.getSetCookie();
+                const headers = res.headers as HeadersWithSetCookie;
+                if (typeof headers.getSetCookie === 'function') {
+                    return headers.getSetCookie();
                 }
                 // Fallback for older environments
                 const raw = res.headers.get('set-cookie');
@@ -114,7 +120,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ error: 'Code invalid' }, { status: 400 });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[Verify] Error:', error);
         return NextResponse.json({ error: 'Verification failed' }, { status: 500 });
     }

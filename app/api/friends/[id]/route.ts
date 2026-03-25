@@ -171,8 +171,8 @@ export async function GET(
                 if (worldRes.ok) {
                     worldData = await worldRes.json();
                 }
-            } catch (e) {
-                console.error(`[FriendAPI] Failed to fetch world ${worldId}`);
+            } catch (error: unknown) {
+                console.error(`[FriendAPI] Failed to fetch world ${worldId}`, error);
             }
         }
 
@@ -184,8 +184,8 @@ export async function GET(
                 if (groupRes.ok) {
                     groupData = await groupRes.json();
                 }
-            } catch (e) {
-                console.error(`[FriendAPI] Failed to fetch group ${instanceInfo.groupId}`);
+            } catch (error: unknown) {
+                console.error(`[FriendAPI] Failed to fetch group ${instanceInfo.groupId}`, error);
             }
         }
 
@@ -197,8 +197,8 @@ export async function GET(
                 if (ownerRes.ok) {
                     ownerData = await ownerRes.json();
                 }
-            } catch (e) {
-                console.error(`[FriendAPI] Failed to fetch owner ${instanceInfo.ownerId}`);
+            } catch (error: unknown) {
+                console.error(`[FriendAPI] Failed to fetch owner ${instanceInfo.ownerId}`, error);
             }
         }
 
@@ -254,7 +254,7 @@ export async function GET(
 
         return NextResponse.json(friendData);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('[FriendAPI] Error:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }

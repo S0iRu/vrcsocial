@@ -35,6 +35,12 @@ type WorldInfo = {
     cachedAt: number;
 };
 
+type GroupInfo = {
+    id: string;
+    name: string;
+    cachedAt: number;
+};
+
 type InstanceGroup = {
     id: string;
     worldName: string;
@@ -65,6 +71,8 @@ type ActiveFriendsResponse = {
 };
 
 const WORLD_CACHE_TTL = 24 * 60 * 60 * 1000;
+const GROUP_CACHE_TTL = 24 * 60 * 60 * 1000;
+const INSTANCE_FETCH_DEBOUNCE = 3000;
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null;
@@ -78,6 +86,9 @@ const isWorldInfo = (value: unknown): value is WorldInfo => {
     if (!isObject(value)) return false;
     return typeof value.id === 'string' && typeof value.name === 'string' && typeof value.cachedAt === 'number';
 };
+
+const isPrivateLocation = (location: string): boolean =>
+    location === 'private' || (location.startsWith('wrld_') && location.includes('~private('));
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -194,13 +205,17 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
     // Refs for data management
     const friendsDataRef = useRef<Map<string, Friend>>(new Map());
+    const offlineFriendsRef = useRef<Map<string, Friend>>(new Map());
     const favoriteIdsRef = useRef<Set<string>>(new Set());
     const favoriteGroupsRef = useRef<Map<string, string>>(new Map());
     const locationTimestampsRef = useRef<Map<string, TimestampEntry>>(new Map());
     const worldCacheRef = useRef<Map<string, WorldInfo>>(new Map());
+    const groupCacheRef = useRef<Map<string, GroupInfo>>(new Map());
     const eventSourceRef = useRef<EventSource | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isFirstLoadRef = useRef(true);
+    const lastConnectedRef = useRef<number>(0);
+    const pendingInstanceFetchesRef = useRef<Set<string>>(new Set());
 
     // Load cached data from localStorage
     useEffect(() => {
@@ -251,6 +266,17 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         } catch (error: unknown) { console.error('Failed to save world cache:', error); }
     }, []);
 
+    // Rebuild offline friends list from ref
+    const rebuildOfflineFriends = useCallback(() => {
+        const sorted = Array.from(offlineFriendsRef.current.values())
+            .sort((a, b) => {
+                const aGroup = parseInt(a.favoriteGroup?.replace('group_', '') || '999', 10);
+                const bGroup = parseInt(b.favoriteGroup?.replace('group_', '') || '999', 10);
+                return aGroup - bGroup;
+            });
+        setOfflineFriends(sorted);
+    }, []);
+
     // Fetch world info
     const fetchWorldInfo = useCallback(async (worldId: string): Promise<WorldInfo | null> => {
         const cached = worldCacheRef.current.get(worldId);
@@ -277,6 +303,71 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         return null;
     }, [saveWorldCache]);
 
+    // Fetch group info
+    const fetchGroupInfo = useCallback(async (groupId: string): Promise<GroupInfo | null> => {
+        const cached = groupCacheRef.current.get(groupId);
+        if (cached && (Date.now() - cached.cachedAt) < GROUP_CACHE_TTL) return cached;
+
+        try {
+            const res = await fetch(`/api/groups/${groupId}`, { credentials: 'include' });
+            if (res.ok) {
+                const data: unknown = await res.json();
+                if (!isObject(data) || typeof data.name !== 'string') return null;
+                const groupInfo: GroupInfo = {
+                    id: typeof data.id === 'string' ? data.id : groupId,
+                    name: data.name,
+                    cachedAt: Date.now()
+                };
+                groupCacheRef.current.set(groupId, groupInfo);
+                return groupInfo;
+            }
+        } catch (error: unknown) { console.error(`Failed to fetch group ${groupId}:`, error); }
+        return null;
+    }, []);
+
+    // Fetch instance info (debounced per location)
+    const fetchInstanceInfo = useCallback(async (location: string) => {
+        if (pendingInstanceFetchesRef.current.has(location)) return;
+        pendingInstanceFetchesRef.current.add(location);
+
+        setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/instances?location=${encodeURIComponent(location)}`, { credentials: 'include' });
+                if (res.ok) {
+                    const data: unknown = await res.json();
+                    if (!isObject(data)) return;
+
+                    const userCount = typeof data.n_users === 'number' ? data.n_users
+                        : typeof data.userCount === 'number' ? data.userCount : undefined;
+                    const instanceType = typeof data.type === 'string' ? convertInstanceType(data.type) : undefined;
+                    const ownerId = typeof data.ownerId === 'string' ? data.ownerId : undefined;
+                    const ownerName = typeof data.ownerName === 'string' ? data.ownerName : undefined;
+
+                    let updated = false;
+                    friendsDataRef.current.forEach((f, id) => {
+                        if (f.location === location) {
+                            const patch: Partial<Friend> = {};
+                            if (userCount != null) patch.instanceUserCount = userCount;
+                            if (instanceType) patch.instanceType = instanceType;
+                            if (ownerId && !f.ownerId) patch.ownerId = ownerId;
+                            if (ownerName && !f.ownerName) patch.ownerName = ownerName;
+                            if (Object.keys(patch).length > 0) {
+                                friendsDataRef.current.set(id, { ...f, ...patch });
+                                updated = true;
+                            }
+                        }
+                    });
+
+                    if (updated) rebuildInstances();
+                }
+            } catch (error: unknown) {
+                console.error(`Failed to fetch instance ${location}:`, error);
+            } finally {
+                pendingInstanceFetchesRef.current.delete(location);
+            }
+        }, INSTANCE_FETCH_DEBOUNCE);
+    }, []); // rebuildInstances added below via ref pattern
+
     // Rebuild instances from friendsDataRef
     const rebuildInstances = useCallback(() => {
         const grouped: Record<string, InstanceGroup> = {};
@@ -297,7 +388,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 let ownerName = f.ownerName || undefined;
                 if (!ownerName && info?.creatorId) ownerName = friendMap.get(info.creatorId);
 
-                // Special handling for traveling state
                 const isTraveling = effectiveLoc === "traveling";
                 
                 grouped[effectiveLoc] = {
@@ -305,7 +395,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     worldName: isTraveling ? "Traveling" : (f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`)),
                     worldImageUrl: isTraveling ? undefined : f.worldImageUrl,
                     instanceType: isTraveling ? "Traveling" : (f.instanceType || info?.type || "Public"),
-                    region: isTraveling ? "" : (f.isPrivate || loc === 'private' ? "" : (info?.region || "US")),
+                    region: isTraveling ? "" : (isPrivateLocation(loc) ? "" : (info?.region || "US")),
                     userCount: 0,
                     instanceUserCount: isTraveling ? undefined : f.instanceUserCount,
                     friends: [],
@@ -319,11 +409,24 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     ownerName: isTraveling ? undefined : ownerName,
                 };
             } else {
-                // Update instance type if friend has more accurate info (from API event)
-                // This handles the case where a friend joined with fresh instance data
+                const g = grouped[effectiveLoc];
                 if (f.instanceType && f.instanceType !== 'Public') {
-                    grouped[effectiveLoc].instanceType = f.instanceType;
+                    g.instanceType = f.instanceType;
                 }
+                if (!g.worldName || g.worldName.startsWith('World ')) {
+                    if (f.worldName && !f.worldName.startsWith('World ')) g.worldName = f.worldName;
+                }
+                if (!g.worldImageUrl && f.worldImageUrl) g.worldImageUrl = f.worldImageUrl;
+                if (f.instanceUserCount != null) {
+                    g.instanceUserCount = Math.max(g.instanceUserCount ?? 0, f.instanceUserCount);
+                }
+                if (!g.groupName && f.groupName) g.groupName = f.groupName;
+                if (!g.ownerId && f.ownerId) g.ownerId = f.ownerId;
+                if (!g.ownerName) {
+                    g.ownerName = f.ownerName || (g.ownerId ? friendMap.get(g.ownerId) : undefined);
+                }
+                if (!g.groupId && f.groupId) g.groupId = f.groupId;
+                if (g.ownerName) g.creatorName = g.ownerName;
             }
 
             const timestampData = locationTimestampsRef.current.get(f.id);
@@ -347,12 +450,10 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         Object.values(grouped).forEach(inst => {
             const sortFriends = (friends: typeof inst.friends) => {
                 return friends.sort((a, b) => {
-                    // Owner comes first
                     const aIsOwner = inst.ownerId && a.id === inst.ownerId;
                     const bIsOwner = inst.ownerId && b.id === inst.ownerId;
                     if (aIsOwner && !bIsOwner) return -1;
                     if (!aIsOwner && bIsOwner) return 1;
-                    // Then sort by stay duration (longer stay = smaller joinedAt = first)
                     const aJoined = a.joinedAt || now;
                     const bJoined = b.joinedAt || now;
                     return aJoined - bJoined;
@@ -369,15 +470,12 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const bIsHidden = b.id === 'private' || b.worldName === 'Private World';
                 const aIsTraveling = a.id === 'traveling';
                 const bIsTraveling = b.id === 'traveling';
-                // Traveling goes before private but after regular instances
                 if (aIsTraveling && !bIsTraveling && !bIsHidden) return 1;
                 if (!aIsTraveling && bIsTraveling && !aIsHidden) return -1;
                 if (aIsTraveling && bIsHidden) return -1;
                 if (aIsHidden && bIsTraveling) return 1;
-                // Private/unknown location goes last
                 if (aIsHidden && !bIsHidden) return 1;
                 if (!aIsHidden && bIsHidden) return -1;
-                // For known locations: sort by longest stay duration of FAVORITE friends (earliest joinedAt first)
                 if (!aIsHidden && !bIsHidden) {
                     const getOldestFavoriteJoinTime = (inst: typeof a) => {
                         const times = inst.friends.map(f => f.joinedAt || now);
@@ -387,7 +485,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     const bOldestJoin = getOldestFavoriteJoinTime(b);
                     if (aOldestJoin !== bOldestJoin) return aOldestJoin - bOldestJoin;
                 }
-                // Fallback: favorite group, then user count
                 if (a.minFavoriteGroup !== b.minFavoriteGroup) return a.minFavoriteGroup - b.minFavoriteGroup;
                 return b.userCount - a.userCount;
             });
@@ -396,6 +493,34 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         setLastUpdated(new Date());
     }, []);
 
+    // Enrich friend data with group name and instance info after location change
+    const enrichFriendData = useCallback(async (userId: string, location: string) => {
+        const info = parseInstanceInfo(location);
+        let needsRebuild = false;
+
+        // Fetch group name if groupId is present but groupName is missing
+        if (info?.groupId) {
+            const friend = friendsDataRef.current.get(userId);
+            if (friend && !friend.groupName) {
+                const groupInfo = await fetchGroupInfo(info.groupId);
+                if (groupInfo) {
+                    const current = friendsDataRef.current.get(userId);
+                    if (current?.location === location) {
+                        friendsDataRef.current.set(userId, { ...current, groupName: groupInfo.name });
+                        needsRebuild = true;
+                    }
+                }
+            }
+        }
+
+        // Fetch instance info for user count and owner
+        if (location.startsWith('wrld_') && location.includes(':')) {
+            fetchInstanceInfo(location);
+        }
+
+        if (needsRebuild) rebuildInstances();
+    }, [fetchGroupInfo, fetchInstanceInfo, rebuildInstances]);
+
     // Fetch initial friends data
     const fetchFriends = useCallback(async () => {
         try {
@@ -403,7 +528,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             if (res.ok) {
                 const data: ActiveFriendsResponse = await res.json();
                 setIsAuthenticated(true);
-                isAuthenticatedRef.current = true; // Set ref immediately for SSE connection
+                isAuthenticatedRef.current = true;
 
                 const currentFriendsMap = new Map<string, Friend>();
                 (data.friends || []).forEach((f) => {
@@ -450,64 +575,59 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 rebuildInstances();
                 isFirstLoadRef.current = false;
 
-                // Handle offline friends (from API offlineFriends + friends with location: "offline")
-                const allOfflineFavorites: Friend[] = [];
-                
-                // Add friends from offlineFriends array (truly offline)
+                // Build offline friends ref
+                offlineFriendsRef.current.clear();
+
                 (data.offlineFriends || []).forEach((f) => {
                     if (!f?.id) return;
-                        allOfflineFavorites.push({
+                    offlineFriendsRef.current.set(f.id, {
+                        id: f.id,
+                        name: f.name || f.displayName || 'Unknown',
+                        displayName: f.name || f.displayName,
+                        userIcon: f.icon || f.userIcon,
+                        status: f.status || 'offline',
+                        location: 'offline',
+                        worldName: 'Offline',
+                        favoriteGroup: f.favoriteGroup,
+                        isFavorite: true,
+                        last_login: f.last_login,
+                        last_activity: f.last_activity,
+                    });
+                });
+
+                (data.friends || []).forEach((f) => {
+                    if (f.isFavorite && f.location === 'offline') {
+                        offlineFriendsRef.current.set(f.id, {
                             id: f.id,
                             name: f.name || f.displayName || 'Unknown',
                             displayName: f.name || f.displayName,
                             userIcon: f.icon || f.userIcon,
-                            status: f.status || 'offline',
+                            status: f.status || 'active',
                             location: 'offline',
                             worldName: 'Offline',
                             favoriteGroup: f.favoriteGroup,
-                            last_login: f.last_login,
-                            last_activity: f.last_activity,
+                            isFavorite: true,
                         });
-                    });
-                
-                // Add favorite friends with location: "offline" from friends array (Active/web status)
-                (data.friends || []).forEach((f) => {
-                        if (f.isFavorite && f.location === 'offline') {
-                            allOfflineFavorites.push({
-                                id: f.id,
-                                name: f.name || f.displayName || 'Unknown',
-                                displayName: f.name || f.displayName,
-                                userIcon: f.icon || f.userIcon,
-                                status: f.status || 'active',
-                                location: 'offline',
-                                worldName: 'Offline',
-                                favoriteGroup: f.favoriteGroup,
-                            });
-                        }
-                    });
-                
-                // Sort by favorite group
-                allOfflineFavorites.sort((a, b) => {
-                    const aGroup = parseInt(a.favoriteGroup?.replace('group_', '') || '999', 10);
-                    const bGroup = parseInt(b.favoriteGroup?.replace('group_', '') || '999', 10);
-                    return aGroup - bGroup;
+                    }
                 });
-                setOfflineFriends(allOfflineFavorites);
+
+                rebuildOfflineFriends();
 
             } else {
                 setIsAuthenticated(false);
-                isAuthenticatedRef.current = false; // Set ref immediately
+                isAuthenticatedRef.current = false;
                 setInstances([]);
+                offlineFriendsRef.current.clear();
                 setOfflineFriends([]);
             }
         } catch (error: unknown) {
             console.error(error);
-            isAuthenticatedRef.current = false; // Set ref immediately on error
+            isAuthenticatedRef.current = false;
             setInstances([]);
         } finally {
             setLoading(false);
         }
-    }, [rebuildInstances, saveTimestamps, saveWorldCache]);
+    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, saveWorldCache]);
 
     // Handle SSE events
     const handleSSEEvent = useCallback(async (eventType: string, data: unknown) => {
@@ -548,14 +668,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     }
                 }
 
-                // Get instance type from event data or parse from location
                 const info = parseInstanceInfo(location);
-                let instanceType = info?.type || 'Public';
-                const instance = isObject(data.instance) ? data.instance : null;
-                // Use instance type from VRChat API if available (more accurate)
-                if (typeof instance?.type === 'string') {
-                    instanceType = convertInstanceType(instance.type);
-                }
+                const instanceType = info?.type || 'Public';
 
                 friendsDataRef.current.set(userId, {
                     id: userId,
@@ -569,21 +683,28 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     location,
                     worldName: worldName || (location === 'private' ? 'Private World' : undefined),
                     worldImageUrl,
-                    isPrivate: location === 'private',
+                    isPrivate: isPrivateLocation(location),
                     isFavorite,
                     favoriteGroup,
                     instanceType,
-                    ownerId: info?.creatorId || (typeof instance?.ownerId === 'string' ? instance.ownerId : undefined),
-                    groupId: info?.groupId || (typeof instance?.groupId === 'string' ? instance.groupId : undefined),
+                    ownerId: info?.creatorId ?? undefined,
+                    groupId: info?.groupId ?? undefined,
                 });
 
                 locationTimestampsRef.current.set(userId, { location, joinedAt: now });
                 saveTimestamps();
-                // Only log favorite friends
+
+                // Remove from offline list
+                if (offlineFriendsRef.current.delete(userId)) {
+                    rebuildOfflineFriends();
+                }
+
                 if (isFavorite) {
                     addLogEntry('OnLine', user.displayName, worldName || 'Online', 'text-green-400');
                 }
                 rebuildInstances();
+
+                enrichFriendData(userId, location);
                 break;
             }
 
@@ -591,8 +712,18 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const userId = typeof data.userId === 'string' ? data.userId : null;
                 if (!userId) break;
                 const friend = friendsDataRef.current.get(userId);
-                // Only log favorite friends
-                if (friend?.isFavorite) addLogEntry('Offline', friend.name || friend.displayName || userId, 'Went Offline', 'text-slate-500');
+
+                if (friend?.isFavorite) {
+                    addLogEntry('Offline', friend.name || friend.displayName || userId, 'Went Offline', 'text-slate-500');
+                    offlineFriendsRef.current.set(userId, {
+                        ...friend,
+                        location: 'offline',
+                        worldName: 'Offline',
+                        status: 'offline',
+                    });
+                    rebuildOfflineFriends();
+                }
+
                 friendsDataRef.current.delete(userId);
                 locationTimestampsRef.current.delete(userId);
                 saveTimestamps();
@@ -611,7 +742,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const previousLocation = existingFriend?.location;
                 const hasLocationChanged = previousLocation !== location;
 
-                // Get previous location info
                 const prevWorldName = existingFriend?.worldName || 'Unknown';
 
                 const world = isObject(data.world) ? data.world : null;
@@ -639,13 +769,24 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     }
                 }
 
-                // Get instance type from event data or parse from location
                 const info = parseInstanceInfo(location);
-                let instanceType = info?.type || 'Public';
-                const instance = isObject(data.instance) ? data.instance : null;
-                // Use instance type from VRChat API if available (more accurate for new instances)
-                if (typeof instance?.type === 'string') {
-                    instanceType = convertInstanceType(instance.type);
+                const instanceType = info?.type || 'Public';
+
+                // Handle offline transition for favorites
+                if (location === 'offline' && isFavorite) {
+                    offlineFriendsRef.current.set(userId, {
+                        ...existingFriend,
+                        id: userId,
+                        name: user.displayName,
+                        location: 'offline',
+                        worldName: 'Offline',
+                        status: typeof user.status === 'string' ? user.status : existingFriend?.status || 'offline',
+                        isFavorite: true,
+                        favoriteGroup,
+                    });
+                    rebuildOfflineFriends();
+                } else if (offlineFriendsRef.current.delete(userId)) {
+                    rebuildOfflineFriends();
                 }
 
                 friendsDataRef.current.set(userId, {
@@ -662,12 +803,12 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     location,
                     worldName: worldName || (location === 'private' ? 'Private World' : undefined),
                     worldImageUrl,
-                    isPrivate: location === 'private',
+                    isPrivate: isPrivateLocation(location),
                     isFavorite,
                     favoriteGroup,
                     instanceType,
-                    ownerId: info?.creatorId || (typeof instance?.ownerId === 'string' ? instance.ownerId : undefined),
-                    groupId: info?.groupId || (typeof instance?.groupId === 'string' ? instance.groupId : undefined),
+                    ownerId: info?.creatorId ?? undefined,
+                    groupId: info?.groupId ?? undefined,
                 });
 
                 if (hasLocationChanged) {
@@ -675,13 +816,16 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     saveTimestamps();
                 }
 
-                // Only log favorite friends when the location actually changed
                 if (isFavorite && hasLocationChanged) {
                     const newWorldName = worldName || (location === 'private' ? 'Private World' : existingFriend?.worldName || 'Unknown');
                     const logDetail = `${prevWorldName} → ${newWorldName}`;
                     addLogEntry('GPS', user.displayName, logDetail, 'text-orange-400');
                 }
                 rebuildInstances();
+
+                if (hasLocationChanged && location !== 'offline' && location !== 'private' && location !== 'traveling') {
+                    enrichFriendData(userId, location);
+                }
                 break;
             }
 
@@ -691,41 +835,120 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 if (!userId || !user || typeof user.displayName !== 'string') break;
                 const existingFriend = friendsDataRef.current.get(userId);
 
+                const newIcon = (typeof user.userIcon === 'string' && user.userIcon)
+                    || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
+                    || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
+                    || undefined;
+                const newStatus = typeof user.status === 'string' ? user.status : undefined;
+                const newStatusMsg = typeof user.statusDescription === 'string' ? user.statusDescription : undefined;
+
                 if (existingFriend) {
                     const isFavorite = existingFriend.isFavorite;
                     const prevStatus = existingFriend.status;
                     const prevStatusMsg = existingFriend.statusMsg;
-                    const newStatus = typeof user.status === 'string' ? user.status : existingFriend.status;
-                    const newStatusMsg = typeof user.statusDescription === 'string'
-                        ? user.statusDescription
-                        : existingFriend.statusMsg;
 
-                    // Log status change for favorites
                     if (isFavorite && prevStatus && newStatus && prevStatus !== newStatus) {
                         addLogEntry('Status', user.displayName, `${prevStatus} → ${newStatus}`, 'text-cyan-400');
                     }
 
-                    // Log status message change for favorites
-                    if (isFavorite && prevStatusMsg !== newStatusMsg && newStatusMsg) {
-                        addLogEntry('StatusMsg', user.displayName, newStatusMsg, 'text-purple-400');
+                    if (isFavorite && prevStatusMsg !== (newStatusMsg ?? existingFriend.statusMsg) && (newStatusMsg ?? existingFriend.statusMsg)) {
+                        addLogEntry('StatusMsg', user.displayName, newStatusMsg ?? existingFriend.statusMsg ?? '', 'text-purple-400');
                     }
 
                     friendsDataRef.current.set(userId, {
                         ...existingFriend,
                         name: user.displayName,
-                        status: newStatus,
-                        statusMsg: newStatusMsg,
-                        icon: (typeof user.userIcon === 'string' && user.userIcon)
-                            || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
-                            || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
-                            || existingFriend.icon,
+                        status: newStatus || existingFriend.status,
+                        statusMsg: newStatusMsg ?? existingFriend.statusMsg,
+                        icon: newIcon || existingFriend.icon,
                     });
                     rebuildInstances();
                 }
+
+                // Also update offline friends ref
+                const offlineFriend = offlineFriendsRef.current.get(userId);
+                if (offlineFriend) {
+                    offlineFriendsRef.current.set(userId, {
+                        ...offlineFriend,
+                        name: user.displayName,
+                        displayName: user.displayName,
+                        status: newStatus || offlineFriend.status,
+                        statusMsg: newStatusMsg ?? offlineFriend.statusMsg,
+                        icon: newIcon || offlineFriend.icon,
+                        userIcon: newIcon || offlineFriend.userIcon,
+                    });
+                    rebuildOfflineFriends();
+                }
+                break;
+            }
+
+            case 'friend-active': {
+                // friend-active uses 'userid' (lowercase d) and has no location
+                const userId = typeof data.userid === 'string' ? data.userid
+                    : typeof data.userId === 'string' ? data.userId
+                    : null;
+                const user = isObject(data.user) ? data.user : null;
+                if (!userId || !user) break;
+
+                // Web active only - update status if friend is already tracked
+                const existing = friendsDataRef.current.get(userId);
+                if (existing) {
+                    const newStatus = typeof user.status === 'string' ? user.status : undefined;
+                    if (newStatus && newStatus !== existing.status) {
+                        friendsDataRef.current.set(userId, { ...existing, status: newStatus });
+                        rebuildInstances();
+                    }
+                }
+                break;
+            }
+
+            case 'friend-add': {
+                const userId = typeof data.userId === 'string' ? data.userId : null;
+                const user = isObject(data.user) ? data.user : null;
+                if (!userId) break;
+
+                if (user && typeof user.displayName === 'string') {
+                    const location = typeof user.location === 'string' ? user.location : 'offline';
+                    if (location !== 'offline') {
+                        friendsDataRef.current.set(userId, {
+                            id: userId,
+                            name: user.displayName,
+                            status: typeof user.status === 'string' ? user.status : 'active',
+                            location,
+                            isFavorite: favoriteIdsRef.current.has(userId),
+                            favoriteGroup: favoriteGroupsRef.current.get(userId),
+                            icon: (typeof user.userIcon === 'string' && user.userIcon)
+                                || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
+                                || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
+                                || '',
+                        });
+                        rebuildInstances();
+                    }
+                }
+                break;
+            }
+
+            case 'friend-delete': {
+                const userId = typeof data.userId === 'string' ? data.userId : null;
+                if (!userId) break;
+
+                friendsDataRef.current.delete(userId);
+                locationTimestampsRef.current.delete(userId);
+                if (offlineFriendsRef.current.delete(userId)) {
+                    rebuildOfflineFriends();
+                }
+                favoriteIdsRef.current.delete(userId);
+                favoriteGroupsRef.current.delete(userId);
+                saveTimestamps();
+                rebuildInstances();
                 break;
             }
         }
-    }, [rebuildInstances, saveTimestamps, fetchWorldInfo]);
+    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, fetchWorldInfo, enrichFriendData]);
+
+    // Ref for fetchFriends to avoid stale closures in connectSSE
+    const fetchFriendsRef = useRef(fetchFriends);
+    fetchFriendsRef.current = fetchFriends;
 
     // Track authentication state for SSE management (ref to avoid stale closures)
     const isAuthenticatedRef = useRef(false);
@@ -745,7 +968,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
     // Connect to SSE
     const connectSSE = useCallback(() => {
-        // Don't connect if not authenticated (use ref for latest value)
         if (!isAuthenticatedRef.current) {
             console.log('[FriendsProvider] Not authenticated, skipping SSE connection');
             return;
@@ -764,6 +986,12 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         eventSource.addEventListener('connected', () => {
             console.log('[FriendsProvider] SSE connected');
             setWsConnectionState('connected');
+
+            const now = Date.now();
+            if (lastConnectedRef.current > 0 && now - lastConnectedRef.current > 30_000) {
+                fetchFriendsRef.current();
+            }
+            lastConnectedRef.current = now;
         });
 
         eventSource.addEventListener('disconnected', () => {
@@ -772,7 +1000,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         });
 
         eventSource.addEventListener('error', () => {
-            // Don't reconnect if we're logged out
             if (!isAuthenticatedRef.current) {
                 disconnectSSE();
                 return;
@@ -780,7 +1007,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             console.log('[FriendsProvider] SSE error, will reconnect...');
             setWsConnectionState('reconnecting');
             
-            // Reconnect after delay
             if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
             reconnectTimeoutRef.current = setTimeout(() => {
                 if (isAuthenticatedRef.current) {
@@ -790,15 +1016,13 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             }, 5000);
         });
 
-        // Friend events
-        const friendEvents = ['friend-online', 'friend-offline', 'friend-location', 'friend-update', 'friend-active'];
+        // Friend events (friend-active handled separately, not normalized to friend-online)
+        const friendEvents = ['friend-online', 'friend-offline', 'friend-location', 'friend-update', 'friend-active', 'friend-add', 'friend-delete'];
         friendEvents.forEach(eventType => {
             eventSource.addEventListener(eventType, (e: MessageEvent) => {
                 try {
-                    const data = JSON.parse(e.data);
-                    // friend-active is similar to friend-online
-                    const normalizedType = eventType === 'friend-active' ? 'friend-online' : eventType;
-                    handleSSEEvent(normalizedType, data);
+                    const eventData = JSON.parse(e.data);
+                    handleSSEEvent(eventType, eventData);
                 } catch (err) {
                     console.error(`[FriendsProvider] Failed to parse ${eventType} event:`, err);
                 }
@@ -806,7 +1030,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         });
 
         eventSource.onerror = () => {
-            // Don't reconnect if not authenticated (user logged out)
             if (!isAuthenticatedRef.current) {
                 disconnectSSE();
                 return;
@@ -829,7 +1052,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     useEffect(() => {
         isAuthenticatedRef.current = isAuthenticated;
         
-        // Disconnect SSE when user logs out
         if (!isAuthenticated && eventSourceRef.current) {
             console.log('[FriendsProvider] User logged out, disconnecting SSE');
             disconnectSSE();
@@ -839,7 +1061,6 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     // Initialize
     useEffect(() => {
         fetchFriends().then(() => {
-            // Only connect SSE if authenticated after fetch
             if (isAuthenticatedRef.current) {
                 connectSSE();
             }

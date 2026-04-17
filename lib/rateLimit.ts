@@ -42,6 +42,14 @@ const RATE_LIMIT_CONFIG = {
         windowMs: 60 * 1000, // 1 minute
         maxRequests: 60, // 60 requests per minute
     },
+    groups: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 60, // 60 requests per minute
+    },
+    instances: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 60, // 60 requests per minute
+    },
     stream: {
         windowMs: 60 * 1000, // 1 minute
         maxRequests: 5, // 5 connections per minute (SSE is long-lived)

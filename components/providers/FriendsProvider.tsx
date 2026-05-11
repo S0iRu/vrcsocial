@@ -1058,7 +1058,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         }
     }, [isAuthenticated, disconnectSSE]);
 
-    // Initialize
+    // Initialize and auto-reload every 5 minutes
     useEffect(() => {
         fetchFriends().then(() => {
             if (isAuthenticatedRef.current) {
@@ -1066,7 +1066,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             }
         });
 
+        const intervalId = setInterval(() => {
+            if (isAuthenticatedRef.current) {
+                fetchFriendsRef.current();
+            }
+        }, 300_000);
+
         return () => {
+            clearInterval(intervalId);
             disconnectSSE();
         };
     }, [fetchFriends, connectSSE, disconnectSSE]);

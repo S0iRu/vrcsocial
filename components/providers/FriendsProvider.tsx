@@ -1070,7 +1070,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             if (isAuthenticatedRef.current) {
                 fetchFriendsRef.current();
             }
-        }, 1_000);
+        }, 30_000);
         // }, 300_000);
 
         return () => {

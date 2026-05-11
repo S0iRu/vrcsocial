@@ -1067,12 +1067,10 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         });
 
         const intervalId = setInterval(() => {
-            console.log('[FriendsProvider] Auto-reload tick, authenticated:', isAuthenticatedRef.current);
             if (isAuthenticatedRef.current) {
-                console.log('[FriendsProvider] Auto-reloading friends data...');
                 fetchFriendsRef.current();
             }
-        }, 10_000);
+        }, 300_000);
 
         return () => {
             clearInterval(intervalId);

@@ -87,6 +87,11 @@ const isWorldInfo = (value: unknown): value is WorldInfo => {
     return typeof value.id === 'string' && typeof value.name === 'string' && typeof value.cachedAt === 'number';
 };
 
+const isGroupInfo = (value: unknown): value is GroupInfo => {
+    if (!isObject(value)) return false;
+    return typeof value.id === 'string' && typeof value.name === 'string' && typeof value.cachedAt === 'number';
+};
+
 const isPrivateLocation = (location: string): boolean =>
     location === 'private' || (location.startsWith('wrld_') && location.includes('~private('));
 
@@ -244,6 +249,19 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     });
                 }
             }
+
+            const savedGroupCache = localStorage.getItem('vrc_group_cache');
+            if (savedGroupCache) {
+                const parsed: unknown = JSON.parse(savedGroupCache);
+                const now = Date.now();
+                if (isObject(parsed)) {
+                    Object.entries(parsed).forEach(([id, data]) => {
+                        if (isGroupInfo(data) && (now - data.cachedAt) < GROUP_CACHE_TTL) {
+                            groupCacheRef.current.set(id, data);
+                        }
+                    });
+                }
+            }
         } catch (error: unknown) {
             console.error('[FriendsProvider] Failed to load cached data:', error);
         }
@@ -264,6 +282,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             worldCacheRef.current.forEach((data, id) => obj[id] = data);
             localStorage.setItem('vrc_world_cache', JSON.stringify(obj));
         } catch (error: unknown) { console.error('Failed to save world cache:', error); }
+    }, []);
+
+    const saveGroupCache = useCallback(() => {
+        try {
+            const obj: Record<string, GroupInfo> = {};
+            groupCacheRef.current.forEach((data, id) => obj[id] = data);
+            localStorage.setItem('vrc_group_cache', JSON.stringify(obj));
+        } catch (error: unknown) { console.error('Failed to save group cache:', error); }
     }, []);
 
     // Rebuild offline friends list from ref
@@ -312,18 +338,23 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             const res = await fetch(`/api/groups/${groupId}`, { credentials: 'include' });
             if (res.ok) {
                 const data: unknown = await res.json();
-                if (!isObject(data) || typeof data.name !== 'string') return null;
+                if (!isObject(data) || typeof data.name !== 'string') {
+                    console.warn(`[FriendsProvider] Group ${groupId}: invalid response (no name)`);
+                    return null;
+                }
                 const groupInfo: GroupInfo = {
                     id: typeof data.id === 'string' ? data.id : groupId,
                     name: data.name,
                     cachedAt: Date.now()
                 };
                 groupCacheRef.current.set(groupId, groupInfo);
+                saveGroupCache();
                 return groupInfo;
             }
+            console.warn(`[FriendsProvider] Group ${groupId}: HTTP ${res.status}`);
         } catch (error: unknown) { console.error(`Failed to fetch group ${groupId}:`, error); }
         return null;
-    }, []);
+    }, [saveGroupCache]);
 
     // Fetch instance info (debounced per location)
     const fetchInstanceInfo = useCallback(async (location: string) => {
@@ -543,6 +574,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 favoriteIdsRef.current.clear();
                 favoriteGroupsRef.current.clear();
 
+                let groupCacheChanged = false;
+
                 currentFriendsMap.forEach((f, id) => {
                     if (f.isFavorite) {
                         favoriteIdsRef.current.add(id);
@@ -567,11 +600,25 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                             worldCacheChanged = true;
                         }
                     }
+
+                    // Cache group names from server response
+                    if (f.groupId && f.groupName) {
+                        const cachedGroup = groupCacheRef.current.get(f.groupId);
+                        if (!cachedGroup || (now - cachedGroup.cachedAt) > GROUP_CACHE_TTL) {
+                            groupCacheRef.current.set(f.groupId, {
+                                id: f.groupId,
+                                name: f.groupName,
+                                cachedAt: now
+                            });
+                            groupCacheChanged = true;
+                        }
+                    }
                 });
 
                 friendsDataRef.current = currentFriendsMap;
                 saveTimestamps();
                 if (worldCacheChanged) saveWorldCache();
+                if (groupCacheChanged) saveGroupCache();
                 rebuildInstances();
                 isFirstLoadRef.current = false;
 
@@ -652,7 +699,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         } finally {
             setLoading(false);
         }
-    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, saveWorldCache, fetchGroupInfo]);
+    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, saveWorldCache, saveGroupCache, fetchGroupInfo]);
 
     // Handle SSE events
     const handleSSEEvent = useCallback(async (eventType: string, data: unknown) => {
@@ -696,6 +743,13 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const info = parseInstanceInfo(location);
                 const instanceType = info?.type || 'Public';
 
+                // Resolve group name from cache if available
+                let groupName: string | undefined;
+                if (info?.groupId) {
+                    const cachedGroup = groupCacheRef.current.get(info.groupId);
+                    if (cachedGroup) groupName = cachedGroup.name;
+                }
+
                 friendsDataRef.current.set(userId, {
                     id: userId,
                     name: user.displayName,
@@ -714,6 +768,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     instanceType,
                     ownerId: info?.creatorId ?? undefined,
                     groupId: info?.groupId ?? undefined,
+                    groupName,
                 });
 
                 locationTimestampsRef.current.set(userId, { location, joinedAt: now });
@@ -797,6 +852,13 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const info = parseInstanceInfo(location);
                 const instanceType = info?.type || 'Public';
 
+                // Resolve group name from cache if available
+                let groupName: string | undefined;
+                if (info?.groupId) {
+                    const cachedGroup = groupCacheRef.current.get(info.groupId);
+                    if (cachedGroup) groupName = cachedGroup.name;
+                }
+
                 // Handle offline transition for favorites
                 if (location === 'offline' && isFavorite) {
                     offlineFriendsRef.current.set(userId, {
@@ -834,6 +896,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     instanceType,
                     ownerId: info?.creatorId ?? undefined,
                     groupId: info?.groupId ?? undefined,
+                    groupName: groupName || existingFriend?.groupName,
                 });
 
                 if (hasLocationChanged) {

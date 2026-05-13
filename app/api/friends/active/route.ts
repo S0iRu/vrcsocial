@@ -77,8 +77,10 @@ const parseUser = (value: unknown): VrcUserApi | null => {
 const parseWorld = (value: unknown): VrcWorldApi | null =>
     isObject(value) ? (value as VrcWorldApi) : null;
 
-const parseGroup = (value: unknown): VrcGroupApi | null =>
-    isObject(value) ? (value as VrcGroupApi) : null;
+const parseGroup = (value: unknown): VrcGroupApi | null => {
+    if (!isObject(value) || typeof value.name !== 'string') return null;
+    return value as VrcGroupApi;
+};
 
 const parseInstance = (value: unknown): VrcInstanceApi | null =>
     isObject(value) ? (value as VrcInstanceApi) : null;
@@ -329,6 +331,11 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        // Delay before group fetches to avoid VRChat rate limiting after world fetches
+        if (worldIdList.length > 0 && groupIds.size > 0) {
+            await new Promise(r => setTimeout(r, 500));
+        }
+
         // Fetch group details
         const groupMap = new Map<string, VrcGroupApi>();
         const groupIdList = Array.from(groupIds);
@@ -338,23 +345,37 @@ export async function GET(req: NextRequest) {
         for (let i = 0; i < groupIdList.length; i += BATCH_SIZE) {
             const batch = groupIdList.slice(i, i + BATCH_SIZE);
             await Promise.all(batch.map(async (gid) => {
-                try {
-                    const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
-                    if (gRes.ok) {
-                        const gData = parseGroup(await gRes.json());
-                        if (gData) {
-                            groupMap.set(gid, gData);
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    try {
+                        const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
+                        if (gRes.ok) {
+                            const gData = parseGroup(await gRes.json());
+                            if (gData) {
+                                groupMap.set(gid, gData);
+                            } else {
+                                console.warn(`[FriendsAPI] Group ${gid}: response parsed but name missing`);
+                            }
+                            break;
                         }
+                        console.warn(`[FriendsAPI] Group ${gid}: HTTP ${gRes.status}`);
+                        if (gRes.status === 429 && attempt === 0) {
+                            await new Promise(r => setTimeout(r, 2000));
+                            continue;
+                        }
+                        break;
+                    } catch (err) {
+                        console.error(`[FriendsAPI] Failed to fetch group ${gid}:`, err);
+                        break;
                     }
-                } catch {
-                    console.error(`Failed to fetch group ${gid}`);
                 }
             }));
 
             if (i + BATCH_SIZE < groupIdList.length) {
-                await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => setTimeout(r, 200));
             }
         }
+        
+        console.log(`[FriendsAPI] Successfully fetched ${groupMap.size}/${groupIdList.length} groups`);
 
         // Collect unique instance locations (for fetching instance user counts)
         const instanceLocations = new Set<string>();

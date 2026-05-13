@@ -24,6 +24,7 @@ type Friend = {
     groupId?: string;
     groupName?: string;
     instanceUserCount?: number;
+    instanceCapacity?: number;
     last_login?: string;
     last_activity?: string;
 };
@@ -48,6 +49,7 @@ type InstanceGroup = {
     region: string;
     userCount: number;
     instanceUserCount?: number;
+    instanceCapacity?: number;
     friends: Friend[];
     otherFriends: Friend[];
     minFavoriteGroup: number;
@@ -374,12 +376,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     const instanceType = typeof data.type === 'string' ? convertInstanceType(data.type) : undefined;
                     const ownerId = typeof data.ownerId === 'string' ? data.ownerId : undefined;
                     const ownerName = typeof data.ownerName === 'string' ? data.ownerName : undefined;
+                    const capacity = typeof data.capacity === 'number' ? data.capacity : undefined;
 
                     let updated = false;
                     friendsDataRef.current.forEach((f, id) => {
                         if (f.location === location) {
                             const patch: Partial<Friend> = {};
                             if (userCount != null) patch.instanceUserCount = userCount;
+                            if (capacity != null) patch.instanceCapacity = capacity;
                             if (instanceType) patch.instanceType = instanceType;
                             if (ownerId && !f.ownerId) patch.ownerId = ownerId;
                             if (ownerName && !f.ownerName) patch.ownerName = ownerName;
@@ -430,6 +434,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     region: isTraveling ? "" : (isPrivateLocation(loc) ? "" : (info?.region || "US")),
                     userCount: 0,
                     instanceUserCount: isTraveling ? undefined : f.instanceUserCount,
+                    instanceCapacity: isTraveling ? undefined : f.instanceCapacity,
                     friends: [],
                     otherFriends: [],
                     minFavoriteGroup: 999,
@@ -451,6 +456,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 if (!g.worldImageUrl && f.worldImageUrl) g.worldImageUrl = f.worldImageUrl;
                 if (f.instanceUserCount != null) {
                     g.instanceUserCount = Math.max(g.instanceUserCount ?? 0, f.instanceUserCount);
+                }
+                if (f.instanceCapacity != null && !g.instanceCapacity) {
+                    g.instanceCapacity = f.instanceCapacity;
                 }
                 if (!g.groupName && f.groupName) g.groupName = f.groupName;
                 if (!g.ownerId && f.ownerId) g.ownerId = f.ownerId;

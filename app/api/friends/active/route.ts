@@ -49,6 +49,7 @@ type VrcGroupApi = {
 type VrcInstanceApi = {
     n_users?: number;
     userCount?: number;
+    capacity?: number;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -521,9 +522,9 @@ export async function GET(req: NextRequest) {
                 worldName = 'Offline';
             }
 
-            // Get instance user count
             const instData = instanceMap.get(f.location);
             const instanceUserCount = typeof instData?.n_users === 'number' ? instData.n_users : null;
+            const instanceCapacity = typeof instData?.capacity === 'number' ? instData.capacity : null;
 
             // Get favorite group for this friend
             const favoriteGroup = favoriteGroups.get(f.id) || null;
@@ -546,6 +547,7 @@ export async function GET(req: NextRequest) {
                 groupId: instanceInfo.groupId,
                 groupName,
                 instanceUserCount,
+                instanceCapacity,
             };
         });
 
@@ -570,6 +572,7 @@ export async function GET(req: NextRequest) {
                 groupId: null,
                 groupName: null,
                 instanceUserCount: null,
+                instanceCapacity: null,
                 last_login: f.last_login,
                 last_activity: f.last_activity,
             };

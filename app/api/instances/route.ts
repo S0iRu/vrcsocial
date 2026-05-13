@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
             ownerName,
             n_users: data.n_users,
             userCount: data.userCount,
+            capacity: data.capacity,
             groupAccessType: data.groupAccessType,
         });
     } catch (error: unknown) {

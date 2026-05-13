@@ -613,6 +613,31 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
                 rebuildOfflineFriends();
 
+                // Fill missing group names (server may hit rate limits on group API)
+                const missingGroupIds = new Set<string>();
+                friendsDataRef.current.forEach((f) => {
+                    if (!f.groupName && f.location) {
+                        const info = parseInstanceInfo(f.location);
+                        if (info?.groupId) missingGroupIds.add(info.groupId);
+                    }
+                });
+                if (missingGroupIds.size > 0) {
+                    for (const groupId of missingGroupIds) {
+                        const groupInfo = await fetchGroupInfo(groupId);
+                        if (groupInfo) {
+                            friendsDataRef.current.forEach((f, id) => {
+                                if (!f.groupName && f.location) {
+                                    const info = parseInstanceInfo(f.location);
+                                    if (info?.groupId === groupId) {
+                                        friendsDataRef.current.set(id, { ...f, groupName: groupInfo.name });
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    rebuildInstances();
+                }
+
             } else {
                 setIsAuthenticated(false);
                 isAuthenticatedRef.current = false;
@@ -627,7 +652,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         } finally {
             setLoading(false);
         }
-    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, saveWorldCache]);
+    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, saveWorldCache, fetchGroupInfo]);
 
     // Handle SSE events
     const handleSSEEvent = useCallback(async (eventType: string, data: unknown) => {

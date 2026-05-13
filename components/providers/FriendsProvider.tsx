@@ -1091,11 +1091,17 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             }
         });
 
-        const intervalId = setInterval(() => {
-            if (isAuthenticatedRef.current) {
-                fetchFriendsRef.current();
+        let isFetching = false;
+        const intervalId = setInterval(async () => {
+            if (isAuthenticatedRef.current && !isFetching) {
+                isFetching = true;
+                try {
+                    await fetchFriendsRef.current();
+                } finally {
+                    isFetching = false;
+                }
             }
-        }, 20_000);        // }, 300_000);
+        }, 300_000);
 
         return () => {
             clearInterval(intervalId);

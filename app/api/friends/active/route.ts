@@ -377,7 +377,9 @@ export async function GET(req: NextRequest) {
                     // Instance API format: /instances/{worldId}:{instanceId}
                     const instRes = await fetch(`${API_BASE}/instances/${loc}`, { headers });
                     if (instRes.ok) {
-                        const instData = parseInstance(await instRes.json());
+                        const rawData = await instRes.json();
+                        console.log(`[FriendsAPI] Instance ${loc}: n_users=${rawData?.n_users}, userCount=${rawData?.userCount}, capacity=${rawData?.capacity}`);
+                        const instData = parseInstance(rawData);
                         if (instData) {
                             instanceMap.set(loc, instData);
                         }
@@ -475,7 +477,7 @@ export async function GET(req: NextRequest) {
 
             // Get instance user count
             const instData = instanceMap.get(f.location);
-            const instanceUserCount = instData?.n_users || instData?.userCount || null;
+            const instanceUserCount = typeof instData?.n_users === 'number' ? instData.n_users : null;
 
             // Get favorite group for this friend
             const favoriteGroup = favoriteGroups.get(f.id) || null;

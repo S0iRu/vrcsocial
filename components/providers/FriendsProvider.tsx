@@ -221,6 +221,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     const isFirstLoadRef = useRef(true);
     const lastConnectedRef = useRef<number>(0);
     const pendingInstanceFetchesRef = useRef<Set<string>>(new Set());
+    const pendingGroupFetchesRef = useRef<Set<string>>(new Set());
 
     // Load cached data from localStorage
     useEffect(() => {
@@ -532,14 +533,23 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         // Fetch group name if groupId is present but groupName is missing
         if (info?.groupId) {
             const friend = friendsDataRef.current.get(userId);
-            if (friend && !friend.groupName) {
-                const groupInfo = await fetchGroupInfo(info.groupId);
-                if (groupInfo) {
-                    const current = friendsDataRef.current.get(userId);
-                    if (current?.location === location) {
-                        friendsDataRef.current.set(userId, { ...current, groupName: groupInfo.name });
+            if (friend && !friend.groupName && !pendingGroupFetchesRef.current.has(info.groupId)) {
+                pendingGroupFetchesRef.current.add(info.groupId);
+                try {
+                    const groupInfo = await fetchGroupInfo(info.groupId);
+                    if (groupInfo) {
+                        friendsDataRef.current.forEach((f, id) => {
+                            if (!f.groupName && f.location) {
+                                const fInfo = parseInstanceInfo(f.location);
+                                if (fInfo?.groupId === info.groupId) {
+                                    friendsDataRef.current.set(id, { ...f, groupName: groupInfo.name });
+                                }
+                            }
+                        });
                         needsRebuild = true;
                     }
+                } finally {
+                    pendingGroupFetchesRef.current.delete(info.groupId!);
                 }
             }
         }
@@ -660,17 +670,30 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
                 rebuildOfflineFriends();
 
-                // Fill missing group names (server may hit rate limits on group API)
+                // Fill missing group names with throttling to avoid VRChat rate limits
                 const missingGroupIds = new Set<string>();
                 friendsDataRef.current.forEach((f) => {
                     if (!f.groupName && f.location) {
                         const info = parseInstanceInfo(f.location);
-                        if (info?.groupId) missingGroupIds.add(info.groupId);
+                        if (info?.groupId && !groupCacheRef.current.has(info.groupId)) {
+                            missingGroupIds.add(info.groupId);
+                        } else if (info?.groupId) {
+                            const cached = groupCacheRef.current.get(info.groupId);
+                            if (cached) {
+                                friendsDataRef.current.set(f.id, { ...f, groupName: cached.name });
+                            }
+                        }
                     }
                 });
                 if (missingGroupIds.size > 0) {
+                    console.log(`[FriendsProvider] Fetching ${missingGroupIds.size} missing group names`);
+                    let fetched = 0;
                     for (const groupId of missingGroupIds) {
+                        if (fetched > 0) {
+                            await new Promise(r => setTimeout(r, 1500));
+                        }
                         const groupInfo = await fetchGroupInfo(groupId);
+                        fetched++;
                         if (groupInfo) {
                             friendsDataRef.current.forEach((f, id) => {
                                 if (!f.groupName && f.location) {
@@ -680,8 +703,10 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                                     }
                                 }
                             });
+                            rebuildInstances();
                         }
                     }
+                } else {
                     rebuildInstances();
                 }
 

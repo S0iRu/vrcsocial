@@ -85,6 +85,9 @@ const parseGroup = (value: unknown): VrcGroupApi | null => {
 const parseInstance = (value: unknown): VrcInstanceApi | null =>
     isObject(value) ? (value as VrcInstanceApi) : null;
 
+// Server-side in-memory group cache (survives across requests, reset on server restart)
+const serverGroupCache = new Map<string, { name: string; cachedAt: number }>();
+const SERVER_GROUP_CACHE_TTL = 24 * 60 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
     // Rate limiting check
@@ -331,27 +334,42 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        // Delay before group fetches to avoid VRChat rate limiting after world fetches
-        if (worldIdList.length > 0 && groupIds.size > 0) {
-            await new Promise(r => setTimeout(r, 500));
-        }
-
-        // Fetch group details
+        // Fetch group details - use server cache first, fetch only uncached ones
         const groupMap = new Map<string, VrcGroupApi>();
         const groupIdList = Array.from(groupIds);
-        
-        console.log(`[FriendsAPI] Fetching info for ${groupIdList.length} unique groups`);
+        const uncachedGroupIds: string[] = [];
+        const now = Date.now();
 
-        for (let i = 0; i < groupIdList.length; i += BATCH_SIZE) {
-            const batch = groupIdList.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map(async (gid) => {
+        for (const gid of groupIdList) {
+            const cached = serverGroupCache.get(gid);
+            if (cached && (now - cached.cachedAt) < SERVER_GROUP_CACHE_TTL) {
+                groupMap.set(gid, { name: cached.name });
+            } else {
+                uncachedGroupIds.push(gid);
+            }
+        }
+        
+        console.log(`[FriendsAPI] Groups: ${groupIdList.length} total, ${groupIdList.length - uncachedGroupIds.length} cached, ${uncachedGroupIds.length} to fetch`);
+
+        if (uncachedGroupIds.length > 0) {
+            // Delay before group fetches to avoid VRChat rate limiting after world/instance fetches
+            if (worldIdList.length > 0) {
+                await new Promise(r => setTimeout(r, 1000));
+            }
+
+            for (let gi = 0; gi < uncachedGroupIds.length; gi++) {
+                const gid = uncachedGroupIds[gi];
+                if (gi > 0) {
+                    await new Promise(r => setTimeout(r, 1000));
+                }
                 for (let attempt = 0; attempt < 2; attempt++) {
                     try {
                         const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
                         if (gRes.ok) {
                             const gData = parseGroup(await gRes.json());
-                            if (gData) {
+                            if (gData && gData.name) {
                                 groupMap.set(gid, gData);
+                                serverGroupCache.set(gid, { name: gData.name, cachedAt: Date.now() });
                             } else {
                                 console.warn(`[FriendsAPI] Group ${gid}: response parsed but name missing`);
                             }
@@ -359,7 +377,7 @@ export async function GET(req: NextRequest) {
                         }
                         console.warn(`[FriendsAPI] Group ${gid}: HTTP ${gRes.status}`);
                         if (gRes.status === 429 && attempt === 0) {
-                            await new Promise(r => setTimeout(r, 2000));
+                            await new Promise(r => setTimeout(r, 3000));
                             continue;
                         }
                         break;
@@ -368,14 +386,10 @@ export async function GET(req: NextRequest) {
                         break;
                     }
                 }
-            }));
-
-            if (i + BATCH_SIZE < groupIdList.length) {
-                await new Promise(r => setTimeout(r, 200));
             }
         }
         
-        console.log(`[FriendsAPI] Successfully fetched ${groupMap.size}/${groupIdList.length} groups`);
+        console.log(`[FriendsAPI] Groups resolved: ${groupMap.size}/${groupIdList.length}`);
 
         // Collect unique instance locations (for fetching instance user counts)
         const instanceLocations = new Set<string>();

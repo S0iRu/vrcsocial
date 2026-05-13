@@ -1070,7 +1070,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             if (isAuthenticatedRef.current) {
                 fetchFriendsRef.current();
             }
-        }, 300_000);
+        }, 10_000);
+        // }, 300_000);
 
         return () => {
             clearInterval(intervalId);

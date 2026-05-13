@@ -530,26 +530,35 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         const info = parseInstanceInfo(location);
         let needsRebuild = false;
 
-        // Fetch group name if groupId is present but groupName is missing
+        // Resolve group name: use cache first, delay API fetch to avoid rate limits
         if (info?.groupId) {
             const friend = friendsDataRef.current.get(userId);
-            if (friend && !friend.groupName && !pendingGroupFetchesRef.current.has(info.groupId)) {
-                pendingGroupFetchesRef.current.add(info.groupId);
-                try {
-                    const groupInfo = await fetchGroupInfo(info.groupId);
-                    if (groupInfo) {
-                        friendsDataRef.current.forEach((f, id) => {
-                            if (!f.groupName && f.location) {
-                                const fInfo = parseInstanceInfo(f.location);
-                                if (fInfo?.groupId === info.groupId) {
-                                    friendsDataRef.current.set(id, { ...f, groupName: groupInfo.name });
-                                }
+            if (friend && !friend.groupName) {
+                const cached = groupCacheRef.current.get(info.groupId);
+                if (cached) {
+                    friendsDataRef.current.set(userId, { ...friend, groupName: cached.name });
+                    needsRebuild = true;
+                } else if (!pendingGroupFetchesRef.current.has(info.groupId)) {
+                    pendingGroupFetchesRef.current.add(info.groupId);
+                    const groupId = info.groupId;
+                    setTimeout(async () => {
+                        try {
+                            const groupInfo = await fetchGroupInfo(groupId);
+                            if (groupInfo) {
+                                friendsDataRef.current.forEach((f, id) => {
+                                    if (!f.groupName && f.location) {
+                                        const fInfo = parseInstanceInfo(f.location);
+                                        if (fInfo?.groupId === groupId) {
+                                            friendsDataRef.current.set(id, { ...f, groupName: groupInfo.name });
+                                        }
+                                    }
+                                });
+                                rebuildInstances();
                             }
-                        });
-                        needsRebuild = true;
-                    }
-                } finally {
-                    pendingGroupFetchesRef.current.delete(info.groupId!);
+                        } finally {
+                            pendingGroupFetchesRef.current.delete(groupId);
+                        }
+                    }, 10000);
                 }
             }
         }
@@ -670,45 +679,21 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
                 rebuildOfflineFriends();
 
-                // Fill missing group names with throttling to avoid VRChat rate limits
-                const missingGroupIds = new Set<string>();
-                friendsDataRef.current.forEach((f) => {
+                // Fill group names from local cache only (server already attempted VRChat API)
+                let groupCacheFilled = false;
+                friendsDataRef.current.forEach((f, id) => {
                     if (!f.groupName && f.location) {
                         const info = parseInstanceInfo(f.location);
-                        if (info?.groupId && !groupCacheRef.current.has(info.groupId)) {
-                            missingGroupIds.add(info.groupId);
-                        } else if (info?.groupId) {
+                        if (info?.groupId) {
                             const cached = groupCacheRef.current.get(info.groupId);
                             if (cached) {
-                                friendsDataRef.current.set(f.id, { ...f, groupName: cached.name });
+                                friendsDataRef.current.set(id, { ...f, groupName: cached.name });
+                                groupCacheFilled = true;
                             }
                         }
                     }
                 });
-                if (missingGroupIds.size > 0) {
-                    console.log(`[FriendsProvider] Fetching ${missingGroupIds.size} missing group names`);
-                    let fetched = 0;
-                    for (const groupId of missingGroupIds) {
-                        if (fetched > 0) {
-                            await new Promise(r => setTimeout(r, 1500));
-                        }
-                        const groupInfo = await fetchGroupInfo(groupId);
-                        fetched++;
-                        if (groupInfo) {
-                            friendsDataRef.current.forEach((f, id) => {
-                                if (!f.groupName && f.location) {
-                                    const info = parseInstanceInfo(f.location);
-                                    if (info?.groupId === groupId) {
-                                        friendsDataRef.current.set(id, { ...f, groupName: groupInfo.name });
-                                    }
-                                }
-                            });
-                            rebuildInstances();
-                        }
-                    }
-                } else {
-                    rebuildInstances();
-                }
+                if (groupCacheFilled) rebuildInstances();
 
             } else {
                 setIsAuthenticated(false);

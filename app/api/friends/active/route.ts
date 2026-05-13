@@ -85,9 +85,10 @@ const parseGroup = (value: unknown): VrcGroupApi | null => {
 const parseInstance = (value: unknown): VrcInstanceApi | null =>
     isObject(value) ? (value as VrcInstanceApi) : null;
 
-// Server-side in-memory group cache (survives across requests, reset on server restart)
+// Server-side in-memory caches (survive across requests, reset on server restart)
 const serverGroupCache = new Map<string, { name: string; cachedAt: number }>();
-const SERVER_GROUP_CACHE_TTL = 24 * 60 * 60 * 1000;
+const serverWorldCache = new Map<string, { name: string; thumbnailImageUrl?: string; cachedAt: number }>();
+const SERVER_CACHE_TTL = 24 * 60 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
     // Rate limiting check
@@ -307,34 +308,7 @@ export async function GET(req: NextRequest) {
             }
         });
 
-        // Fetch world details with BATCHING to avoid 429 Rate Limits
-        const worldMap = new Map<string, VrcWorldApi>();
-        const worldIdList = Array.from(worldIds);
-
-        console.log(`[FriendsAPI] Fetching info for ${worldIdList.length} unique worlds (Batch Size: ${BATCH_SIZE})`);
-
-        for (let i = 0; i < worldIdList.length; i += BATCH_SIZE) {
-            const batch = worldIdList.slice(i, i + BATCH_SIZE);
-            await Promise.all(batch.map(async (wid) => {
-                try {
-                    const wRes = await fetch(`${API_BASE}/worlds/${wid}`, { headers });
-                    if (wRes.ok) {
-                        const wData = parseWorld(await wRes.json());
-                        if (wData) {
-                            worldMap.set(wid, wData);
-                        }
-                    }
-                } catch {
-                    console.error(`Failed to fetch world ${wid}`);
-                }
-            }));
-
-            if (i + BATCH_SIZE < worldIdList.length) {
-                await new Promise(r => setTimeout(r, 100));
-            }
-        }
-
-        // Fetch group details - use server cache first, fetch only uncached ones
+        // --- FETCH GROUPS FIRST (highest priority, fewest requests) ---
         const groupMap = new Map<string, VrcGroupApi>();
         const groupIdList = Array.from(groupIds);
         const uncachedGroupIds: string[] = [];
@@ -342,7 +316,7 @@ export async function GET(req: NextRequest) {
 
         for (const gid of groupIdList) {
             const cached = serverGroupCache.get(gid);
-            if (cached && (now - cached.cachedAt) < SERVER_GROUP_CACHE_TTL) {
+            if (cached && (now - cached.cachedAt) < SERVER_CACHE_TTL) {
                 groupMap.set(gid, { name: cached.name });
             } else {
                 uncachedGroupIds.push(gid);
@@ -351,45 +325,82 @@ export async function GET(req: NextRequest) {
         
         console.log(`[FriendsAPI] Groups: ${groupIdList.length} total, ${groupIdList.length - uncachedGroupIds.length} cached, ${uncachedGroupIds.length} to fetch`);
 
-        if (uncachedGroupIds.length > 0) {
-            // Delay before group fetches to avoid VRChat rate limiting after world/instance fetches
-            if (worldIdList.length > 0) {
-                await new Promise(r => setTimeout(r, 1000));
+        for (let gi = 0; gi < uncachedGroupIds.length; gi++) {
+            const gid = uncachedGroupIds[gi];
+            if (gi > 0) {
+                await new Promise(r => setTimeout(r, 500));
             }
-
-            for (let gi = 0; gi < uncachedGroupIds.length; gi++) {
-                const gid = uncachedGroupIds[gi];
-                if (gi > 0) {
-                    await new Promise(r => setTimeout(r, 1000));
-                }
-                for (let attempt = 0; attempt < 2; attempt++) {
-                    try {
-                        const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
-                        if (gRes.ok) {
-                            const gData = parseGroup(await gRes.json());
-                            if (gData && gData.name) {
-                                groupMap.set(gid, gData);
-                                serverGroupCache.set(gid, { name: gData.name, cachedAt: Date.now() });
-                            } else {
-                                console.warn(`[FriendsAPI] Group ${gid}: response parsed but name missing`);
-                            }
-                            break;
+            for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                    const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
+                    if (gRes.ok) {
+                        const gData = parseGroup(await gRes.json());
+                        if (gData && gData.name) {
+                            groupMap.set(gid, gData);
+                            serverGroupCache.set(gid, { name: gData.name, cachedAt: Date.now() });
+                        } else {
+                            console.warn(`[FriendsAPI] Group ${gid}: response parsed but name missing`);
                         }
-                        console.warn(`[FriendsAPI] Group ${gid}: HTTP ${gRes.status}`);
-                        if (gRes.status === 429 && attempt === 0) {
-                            await new Promise(r => setTimeout(r, 3000));
-                            continue;
-                        }
-                        break;
-                    } catch (err) {
-                        console.error(`[FriendsAPI] Failed to fetch group ${gid}:`, err);
                         break;
                     }
+                    console.warn(`[FriendsAPI] Group ${gid}: HTTP ${gRes.status}`);
+                    if (gRes.status === 429 && attempt === 0) {
+                        await new Promise(r => setTimeout(r, 3000));
+                        continue;
+                    }
+                    break;
+                } catch (err) {
+                    console.error(`[FriendsAPI] Failed to fetch group ${gid}:`, err);
+                    break;
                 }
             }
         }
         
         console.log(`[FriendsAPI] Groups resolved: ${groupMap.size}/${groupIdList.length}`);
+
+        // --- THEN FETCH WORLDS (with server cache) ---
+        const worldMap = new Map<string, VrcWorldApi>();
+        const worldIdList = Array.from(worldIds);
+        const uncachedWorldIds: string[] = [];
+
+        for (const wid of worldIdList) {
+            const cached = serverWorldCache.get(wid);
+            if (cached && (now - cached.cachedAt) < SERVER_CACHE_TTL) {
+                worldMap.set(wid, { name: cached.name, thumbnailImageUrl: cached.thumbnailImageUrl });
+            } else {
+                uncachedWorldIds.push(wid);
+            }
+        }
+
+        console.log(`[FriendsAPI] Worlds: ${worldIdList.length} total, ${worldIdList.length - uncachedWorldIds.length} cached, ${uncachedWorldIds.length} to fetch`);
+
+        for (let i = 0; i < uncachedWorldIds.length; i += BATCH_SIZE) {
+            const batch = uncachedWorldIds.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (wid) => {
+                try {
+                    const wRes = await fetch(`${API_BASE}/worlds/${wid}`, { headers });
+                    if (wRes.ok) {
+                        const wData = parseWorld(await wRes.json());
+                        if (wData) {
+                            worldMap.set(wid, wData);
+                            if (wData.name) {
+                                serverWorldCache.set(wid, {
+                                    name: wData.name,
+                                    thumbnailImageUrl: wData.thumbnailImageUrl,
+                                    cachedAt: Date.now()
+                                });
+                            }
+                        }
+                    }
+                } catch {
+                    console.error(`Failed to fetch world ${wid}`);
+                }
+            }));
+
+            if (i + BATCH_SIZE < uncachedWorldIds.length) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+        }
 
         // Collect unique instance locations (for fetching instance user counts)
         const instanceLocations = new Set<string>();

@@ -188,8 +188,8 @@ export default function FavoritesPage() {
                                             </div>
                                             <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg text-xs md:text-sm font-medium text-white shrink-0" title={`${group.userCount} favorites / ${group.instanceUserCount || '?'} total`}>
                                                 <Users className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400" />
-                                                {group.instanceUserCount || group.userCount}
-                                                {group.instanceUserCount && group.instanceUserCount !== group.userCount && (
+                                                {group.instanceUserCount || '-'}
+                                                {group.instanceUserCount && group.instanceUserCount !== (group.friends.length + group.otherFriends.length) && (
                                                     <span className="text-slate-400 text-[10px] md:text-xs">({group.userCount}★)</span>
                                                 )}
                                             </span>

@@ -359,7 +359,7 @@ export async function GET(req: NextRequest) {
         // Collect unique instance locations (for fetching instance user counts)
         const instanceLocations = new Set<string>();
         allActiveFriends.forEach((f) => {
-            if (f.location && f.location.startsWith('wrld_') && !f.location.includes('private')) {
+            if (f.location && f.location.startsWith('wrld_') && f.location.includes(':')) {
                 instanceLocations.add(f.location);
             }
         });

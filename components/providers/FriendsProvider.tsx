@@ -385,8 +385,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                             if (userCount != null) patch.instanceUserCount = userCount;
                             if (capacity != null) patch.instanceCapacity = capacity;
                             if (instanceType) patch.instanceType = instanceType;
-                            if (ownerId && !f.ownerId) patch.ownerId = ownerId;
-                            if (ownerName && !f.ownerName) patch.ownerName = ownerName;
+                            if (ownerId) patch.ownerId = ownerId;
+                            if (ownerName) patch.ownerName = ownerName;
                             if (Object.keys(patch).length > 0) {
                                 friendsDataRef.current.set(id, { ...f, ...patch });
                                 updated = true;
@@ -913,8 +913,11 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     favoriteGroup,
                     instanceType,
                     ownerId: info?.creatorId ?? undefined,
+                    ownerName: hasLocationChanged ? undefined : existingFriend?.ownerName,
                     groupId: info?.groupId ?? undefined,
-                    groupName: groupName || existingFriend?.groupName,
+                    groupName: hasLocationChanged ? (groupName || undefined) : (groupName || existingFriend?.groupName),
+                    instanceUserCount: hasLocationChanged ? undefined : existingFriend?.instanceUserCount,
+                    instanceCapacity: hasLocationChanged ? undefined : existingFriend?.instanceCapacity,
                 });
 
                 if (hasLocationChanged) {

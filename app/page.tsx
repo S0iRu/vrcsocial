@@ -173,11 +173,11 @@ export default function FavoritesPage() {
                                                             <span className="text-[10px] md:text-xs text-cyan-300 bg-cyan-500/10 px-1.5 rounded flex items-center gap-1">
                                                                 Group: {group.groupName}
                                                             </span>
-                                                        ) : group.ownerName ? (
+                                                        ) : (
                                                             <span className="text-[10px] md:text-xs text-indigo-300 bg-indigo-500/10 px-1.5 rounded flex items-center gap-1">
-                                                                <User className="w-3 h-3" /> Host: {group.ownerName}
+                                                                <User className="w-3 h-3" /> Host: {group.ownerName || '-'}
                                                             </span>
-                                                        ) : null}
+                                                        )}
                                                         {!group.worldName.includes("Private") && group.id !== 'private' && (
                                                             <span className="text-[10px] md:text-xs text-slate-600 font-mono truncate max-w-[100px]">
                                                                 #{group.id.split(':')[1]?.split('~')[0]}

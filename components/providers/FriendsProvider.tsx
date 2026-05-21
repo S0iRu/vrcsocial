@@ -516,6 +516,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 if (aIsHidden && bIsTraveling) return 1;
                 if (aIsHidden && !bIsHidden) return 1;
                 if (!aIsHidden && bIsHidden) return -1;
+                if (a.minFavoriteGroup !== b.minFavoriteGroup) return a.minFavoriteGroup - b.minFavoriteGroup;
+                if (a.userCount !== b.userCount) return b.userCount - a.userCount;
                 if (!aIsHidden && !bIsHidden) {
                     const getOldestFavoriteJoinTime = (inst: typeof a) => {
                         const times = inst.friends.map(f => f.joinedAt || now);
@@ -525,8 +527,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     const bOldestJoin = getOldestFavoriteJoinTime(b);
                     if (aOldestJoin !== bOldestJoin) return aOldestJoin - bOldestJoin;
                 }
-                if (a.minFavoriteGroup !== b.minFavoriteGroup) return a.minFavoriteGroup - b.minFavoriteGroup;
-                return b.userCount - a.userCount;
+                return 0;
             });
 
         setInstances(sortedInstances);

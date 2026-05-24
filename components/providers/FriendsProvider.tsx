@@ -455,7 +455,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 }
                 if (!g.worldImageUrl && f.worldImageUrl) g.worldImageUrl = f.worldImageUrl;
                 if (f.instanceUserCount != null) {
-                    g.instanceUserCount = Math.max(g.instanceUserCount ?? 0, f.instanceUserCount);
+                    g.instanceUserCount = f.instanceUserCount;
                 }
                 if (f.instanceCapacity != null && !g.instanceCapacity) {
                     g.instanceCapacity = f.instanceCapacity;

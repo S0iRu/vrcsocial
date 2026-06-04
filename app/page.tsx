@@ -106,6 +106,13 @@ export default function FavoritesPage() {
                         Login
                     </Link>
                 )}
+
+                {isAuthenticated && instances.filter(g => g.id !== 'private' && g.worldName !== 'Private World' && g.id !== 'traveling').length > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 rounded-lg text-[11px] md:text-xs text-slate-400 shrink-0">
+                        <Users className="w-3.5 h-3.5 text-emerald-400" />
+                        <span><span className="text-yellow-400">★Favorites</span> / Friends / Users / Capacity</span>
+                    </div>
+                )}
             </div>
 
             {loading ? (

@@ -5,6 +5,7 @@ import {
     VRC_API_BASE,
     buildVrcHeaders,
     getInstanceCatalog,
+    mergeProfileFields,
     parseInstanceExtras,
     pickUserImageUrl,
 } from '@/lib/vrcApi';
@@ -56,6 +57,7 @@ type VrcGroupApi = {
 };
 
 type VrcInstanceApi = {
+    occupancy?: number;
     n_users?: number;
     userCount?: number;
     capacity?: number;
@@ -100,6 +102,7 @@ const parseGroup = (value: unknown): VrcGroupApi | null => {
 // Server-side in-memory caches (survive across requests, reset on server restart)
 const serverGroupCache = new Map<string, { name: string; cachedAt: number }>();
 const serverWorldCache = new Map<string, { name: string; thumbnailImageUrl?: string; cachedAt: number }>();
+const serverUserIconCache = new Map<string, { icon: string; cachedAt: number }>();
 const SERVER_CACHE_TTL = 24 * 60 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
@@ -246,18 +249,28 @@ export async function GET(req: NextRequest) {
                         if (userRes.ok) {
                             const userData = parseUser(await userRes.json());
                             if (userData) {
-                                if (!pickUserImageUrl(userData)) {
-                                    try {
-                                        const profileRes = await fetch(`${VRC_API_BASE}/profile/${userId}`, { headers });
-                                        if (profileRes.ok) {
-                                            const profile = await profileRes.json();
-                                            Object.assign(userData, profile);
+                                let icon = pickUserImageUrl(userData);
+                                if (!icon) {
+                                    const cachedIcon = serverUserIconCache.get(userId);
+                                    if (cachedIcon && (Date.now() - cachedIcon.cachedAt) < SERVER_CACHE_TTL) {
+                                        icon = cachedIcon.icon;
+                                    } else {
+                                        try {
+                                            const profileRes = await fetch(`${VRC_API_BASE}/profile/${userId}`, { headers });
+                                            if (profileRes.ok) {
+                                                icon = mergeProfileFields(userData, await profileRes.json()).icon;
+                                            }
+                                        } catch {
+                                            console.error(`Failed to fetch profile for offline favorite ${userId}`);
                                         }
-                                    } catch {
-                                        console.error(`Failed to fetch profile for offline favorite ${userId}`);
                                     }
                                 }
-                                offlineFavoriteFriends.push(userData);
+                                if (icon) {
+                                    serverUserIconCache.set(userId, { icon, cachedAt: Date.now() });
+                                    offlineFavoriteFriends.push({ ...userData, iconUrl: icon });
+                                } else {
+                                    offlineFavoriteFriends.push(userData);
+                                }
                             }
                         }
                     } catch {
@@ -445,10 +458,12 @@ export async function GET(req: NextRequest) {
                     if (instRes.ok) {
                         const rawData = await instRes.json();
                         const extras = parseInstanceExtras(rawData, catalog);
-                        console.log(`[FriendsAPI] Instance ${loc}: n_users=${extras.n_users}, userCount=${extras.userCount}, capacity=${extras.capacity}`);
+                        console.log(`[FriendsAPI] Instance ${loc}: occupancy=${extras.occupancy}, n_users=${extras.n_users}, userCount=${extras.userCount}, capacity=${extras.capacity}`);
+                        const occupancy = extras.occupancy ?? extras.n_users ?? extras.userCount;
                         instanceMap.set(loc, {
-                            n_users: extras.n_users,
-                            userCount: extras.userCount,
+                            occupancy,
+                            n_users: occupancy,
+                            userCount: occupancy,
                             capacity: extras.capacity,
                             displayName: extras.displayName || undefined,
                             description: extras.description || undefined,
@@ -540,8 +555,7 @@ export async function GET(req: NextRequest) {
                     worldImageUrl = wData.thumbnailImageUrl;
                 }
 
-                // Check if instance is private
-                if (f.location.includes('private')) {
+                if (f.location === 'private') {
                     isPrivate = true;
                 }
             } else if (f.location === 'offline') {
@@ -549,9 +563,11 @@ export async function GET(req: NextRequest) {
             }
 
             const instData = instanceMap.get(f.location);
-            const instanceUserCount = typeof instData?.n_users === 'number'
-                ? instData.n_users
-                : typeof instData?.userCount === 'number' ? instData.userCount : null;
+            const instanceUserCount = typeof instData?.occupancy === 'number'
+                ? instData.occupancy
+                : typeof instData?.n_users === 'number'
+                    ? instData.n_users
+                    : typeof instData?.userCount === 'number' ? instData.userCount : null;
             const instanceCapacity = typeof instData?.capacity === 'number' ? instData.capacity : null;
 
             const favoriteGroup = favoriteGroups.get(f.id) || null;

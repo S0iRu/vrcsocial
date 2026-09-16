@@ -5,11 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useFriends, ConnectionState } from "@/components/providers/FriendsProvider";
 import { useState, useEffect } from "react";
-
-const vrchatWorldPageUrl = (location: string): string | null => {
-    const worldId = location.startsWith('wrld_') ? location.split(':')[0] : '';
-    return worldId.startsWith('wrld_') ? `https://vrchat.com/home/world/${worldId}` : null;
-};
+import { vrchatWorldPageUrl } from '@/lib/vrcFields';
 
 function WorldNameLink({ location, name }: { location: string; name: string }) {
     const worldUrl = vrchatWorldPageUrl(location);
@@ -204,6 +200,16 @@ export default function FavoritesPage() {
                                                                 {group.instanceCategory}
                                                             </span>
                                                         )}
+                                                        {group.instanceVibes && group.instanceVibes.length > 0 && (
+                                                            <span className="text-[10px] md:text-xs text-fuchsia-300 bg-fuchsia-500/10 px-1.5 rounded">
+                                                                {group.instanceVibes.join(', ')}
+                                                            </span>
+                                                        )}
+                                                        {group.instanceLanguages && group.instanceLanguages.length > 0 && (
+                                                            <span className="text-[10px] md:text-xs text-slate-400 bg-white/5 px-1.5 rounded">
+                                                                {group.instanceLanguages.join(', ')}
+                                                            </span>
+                                                        )}
                                                         {group.region && (
                                                             <span className="text-[10px] md:text-xs text-slate-500 font-mono">
                                                                 {group.region}
@@ -225,9 +231,9 @@ export default function FavoritesPage() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg text-xs md:text-sm font-medium text-white shrink-0" title={`${group.userCount} favorites / ${group.friends.length + group.otherFriends.length} friends / ${group.instanceUserCount || '?'} users / ${group.instanceCapacity || '?'} capacity`}>
+                                            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 rounded-lg text-xs md:text-sm font-medium text-white shrink-0" title={`${group.userCount} favorites / ${group.friends.length + group.otherFriends.length} friends / ${Math.max(group.instanceUserCount ?? 0, group.friends.length + group.otherFriends.length)} users / ${group.instanceCapacity ?? '?'} capacity`}>
                                                 <Users className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400" />
-                                                ★{group.userCount}/{group.friends.length + group.otherFriends.length}/{group.instanceUserCount || '-'}/{group.instanceCapacity || '-'}
+                                                ★{group.userCount}/{group.friends.length + group.otherFriends.length}/{Math.max(group.instanceUserCount ?? 0, group.friends.length + group.otherFriends.length)}/{group.instanceCapacity ?? '-'}
                                             </span>
                                         </div>
                                         {group.instanceDescription && (

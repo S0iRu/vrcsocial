@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { pickUserImageUrl } from '@/lib/vrcApi';
+import { instanceTypeFromApi, isHiddenPrivateLocation, pickUserImageUrl } from '@/lib/vrcFields';
 
 // Types
 type Friend = {
@@ -83,9 +83,22 @@ type ActiveFriendsResponse = {
     offlineFriends?: Friend[];
 };
 
+type InstanceStats = {
+    userCount?: number;
+    capacity?: number;
+    instanceType?: string;
+    ownerId?: string;
+    ownerName?: string;
+    displayName?: string;
+    description?: string;
+    categoryName?: string;
+    vibeNames?: string[];
+    languages?: string[];
+};
+
 const WORLD_CACHE_TTL = 24 * 60 * 60 * 1000;
 const GROUP_CACHE_TTL = 24 * 60 * 60 * 1000;
-const INSTANCE_FETCH_DEBOUNCE = 3000;
+const INSTANCE_FETCH_DEBOUNCE = 400;
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null;
@@ -106,7 +119,7 @@ const isGroupInfo = (value: unknown): value is GroupInfo => {
 };
 
 const isPrivateLocation = (location: string): boolean =>
-    location === 'private' || (location.startsWith('wrld_') && location.includes('~private('));
+    isHiddenPrivateLocation(location);
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -176,19 +189,7 @@ const parseInstanceInfo = (location: string) => {
 };
 
 // Convert VRChat API instance type to display type
-const convertInstanceType = (apiType: string | undefined): string => {
-    if (!apiType) return 'Public';
-    switch (apiType.toLowerCase()) {
-        case 'public': return 'Public';
-        case 'friends': return 'Friends';
-        case 'hidden': return 'Friends+';
-        case 'private': return 'Invite';
-        case 'invite': return 'Invite';
-        case 'inviteplus': return 'Invite+';
-        case 'group': return 'Group';
-        default: return apiType;
-    }
-};
+const convertInstanceType = instanceTypeFromApi;
 
 // Helper to add a log entry
 const addLogEntry = (type: string, user: string, detail: string, color: string) => {
@@ -234,6 +235,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     const isFirstLoadRef = useRef(true);
     const lastConnectedRef = useRef<number>(0);
     const pendingInstanceFetchesRef = useRef<Set<string>>(new Set());
+    const queuedInstanceFetchesRef = useRef<Set<string>>(new Set());
+    const instanceStatsRef = useRef<Map<string, InstanceStats>>(new Map());
     const pendingGroupFetchesRef = useRef<Set<string>>(new Set());
 
     // Load cached data from localStorage
@@ -370,9 +373,15 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         return null;
     }, [saveGroupCache]);
 
-    // Fetch instance info (debounced per location)
-    const fetchInstanceInfo = useCallback(async (location: string) => {
-        if (pendingInstanceFetchesRef.current.has(location)) return;
+    const rebuildInstancesRef = useRef<() => void>(() => {});
+    const fetchInstanceInfoRef = useRef<(location: string) => void>(() => {});
+
+    const fetchInstanceInfo = useCallback((location: string) => {
+        if (!location.startsWith('wrld_') || !location.includes(':')) return;
+        if (pendingInstanceFetchesRef.current.has(location)) {
+            queuedInstanceFetchesRef.current.add(location);
+            return;
+        }
         pendingInstanceFetchesRef.current.add(location);
 
         setTimeout(async () => {
@@ -380,54 +389,45 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const res = await fetch(`/api/instances?location=${encodeURIComponent(location)}`, { credentials: 'include' });
                 if (res.ok) {
                     const data: unknown = await res.json();
-                    if (!isObject(data)) return;
+                    if (isObject(data)) {
+                        const occupancy = typeof data.occupancy === 'number' ? data.occupancy
+                            : typeof data.n_users === 'number' ? data.n_users
+                            : typeof data.userCount === 'number' ? data.userCount : undefined;
+                        const groupAccessType = typeof data.groupAccessType === 'string' ? data.groupAccessType : undefined;
+                        const instanceType = typeof data.type === 'string'
+                            ? convertInstanceType(data.type, groupAccessType)
+                            : undefined;
 
-                    const userCount = typeof data.n_users === 'number' ? data.n_users
-                        : typeof data.userCount === 'number' ? data.userCount : undefined;
-                    const instanceType = typeof data.type === 'string' ? convertInstanceType(data.type) : undefined;
-                    const ownerId = typeof data.ownerId === 'string' ? data.ownerId : undefined;
-                    const ownerName = typeof data.ownerName === 'string' ? data.ownerName : undefined;
-                    const capacity = typeof data.capacity === 'number' ? data.capacity : undefined;
-                    const displayName = typeof data.displayName === 'string' ? data.displayName : undefined;
-                    const description = typeof data.description === 'string' ? data.description : undefined;
-                    const categoryName = typeof data.categoryName === 'string' ? data.categoryName : undefined;
-                    const vibeNames = Array.isArray(data.vibeNames)
-                        ? data.vibeNames.filter((item): item is string => typeof item === 'string')
-                        : undefined;
-                    const languages = Array.isArray(data.languages)
-                        ? data.languages.filter((item): item is string => typeof item === 'string')
-                        : undefined;
-
-                    let updated = false;
-                    friendsDataRef.current.forEach((f, id) => {
-                        if (f.location === location) {
-                            const patch: Partial<Friend> = {};
-                            if (userCount != null) patch.instanceUserCount = userCount;
-                            if (capacity != null) patch.instanceCapacity = capacity;
-                            if (instanceType) patch.instanceType = instanceType;
-                            if (ownerId) patch.ownerId = ownerId;
-                            if (ownerName) patch.ownerName = ownerName;
-                            if (displayName) patch.instanceDisplayName = displayName;
-                            if (description) patch.instanceDescription = description;
-                            if (categoryName) patch.instanceCategory = categoryName;
-                            if (vibeNames) patch.instanceVibes = vibeNames;
-                            if (languages) patch.instanceLanguages = languages;
-                            if (Object.keys(patch).length > 0) {
-                                friendsDataRef.current.set(id, { ...f, ...patch });
-                                updated = true;
-                            }
-                        }
-                    });
-
-                    if (updated) rebuildInstances();
+                        instanceStatsRef.current.set(location, {
+                            userCount: occupancy,
+                            capacity: typeof data.capacity === 'number' ? data.capacity : undefined,
+                            instanceType,
+                            ownerId: typeof data.ownerId === 'string' ? data.ownerId : undefined,
+                            ownerName: typeof data.ownerName === 'string' ? data.ownerName : undefined,
+                            displayName: typeof data.displayName === 'string' ? data.displayName : undefined,
+                            description: typeof data.description === 'string' ? data.description : undefined,
+                            categoryName: typeof data.categoryName === 'string' ? data.categoryName : undefined,
+                            vibeNames: Array.isArray(data.vibeNames)
+                                ? data.vibeNames.filter((item): item is string => typeof item === 'string')
+                                : undefined,
+                            languages: Array.isArray(data.languages)
+                                ? data.languages.filter((item): item is string => typeof item === 'string')
+                                : undefined,
+                        });
+                        rebuildInstancesRef.current();
+                    }
                 }
             } catch (error: unknown) {
                 console.error(`Failed to fetch instance ${location}:`, error);
             } finally {
                 pendingInstanceFetchesRef.current.delete(location);
+                if (queuedInstanceFetchesRef.current.delete(location)) {
+                    fetchInstanceInfoRef.current(location);
+                }
             }
         }, INSTANCE_FETCH_DEBOUNCE);
-    }, []); // rebuildInstances added below via ref pattern
+    }, []);
+    fetchInstanceInfoRef.current = fetchInstanceInfo;
 
     // Rebuild instances from friendsDataRef
     const rebuildInstances = useCallback(() => {
@@ -446,20 +446,21 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
             if (!grouped[effectiveLoc]) {
                 const info = parseInstanceInfo(loc);
-                let ownerName = f.ownerName || undefined;
+                const stats = instanceStatsRef.current.get(effectiveLoc);
+                let ownerName = stats?.ownerName || f.ownerName || undefined;
                 if (!ownerName && info?.creatorId) ownerName = friendMap.get(info.creatorId);
 
                 const isTraveling = effectiveLoc === "traveling";
                 
                 grouped[effectiveLoc] = {
                     id: effectiveLoc,
-                    worldName: isTraveling ? "Traveling" : (f.worldName || (loc.includes('private') ? "Private World" : `World ${loc.split(':')[0]}`)),
+                    worldName: isTraveling ? "Traveling" : (f.worldName || (isHiddenPrivateLocation(loc) ? "Private World" : `World ${loc.split(':')[0]}`)),
                     worldImageUrl: isTraveling ? undefined : f.worldImageUrl,
-                    instanceType: isTraveling ? "Traveling" : (f.instanceType || info?.type || "Public"),
+                    instanceType: isTraveling ? "Traveling" : (info?.type || stats?.instanceType || f.instanceType || "Public"),
                     region: isTraveling ? "" : (isPrivateLocation(loc) ? "" : (info?.region || "US")),
                     userCount: 0,
-                    instanceUserCount: isTraveling ? undefined : f.instanceUserCount,
-                    instanceCapacity: isTraveling ? undefined : f.instanceCapacity,
+                    instanceUserCount: isTraveling ? undefined : stats?.userCount,
+                    instanceCapacity: isTraveling ? undefined : stats?.capacity,
                     friends: [],
                     otherFriends: [],
                     minFavoriteGroup: 999,
@@ -467,16 +468,17 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     creatorName: isTraveling ? undefined : ownerName,
                     groupId: isTraveling ? undefined : (f.groupId || (info?.groupId ?? undefined)),
                     groupName: isTraveling ? undefined : f.groupName,
-                    ownerId: isTraveling ? undefined : (f.ownerId || (info?.creatorId ?? undefined)),
+                    ownerId: isTraveling ? undefined : (stats?.ownerId || f.ownerId || (info?.creatorId ?? undefined)),
                     ownerName: isTraveling ? undefined : ownerName,
-                    instanceDisplayName: isTraveling ? undefined : (f.instanceDisplayName || undefined),
-                    instanceDescription: isTraveling ? undefined : (f.instanceDescription || undefined),
-                    instanceCategory: isTraveling ? undefined : (f.instanceCategory || undefined),
-                    instanceVibes: isTraveling ? undefined : f.instanceVibes,
-                    instanceLanguages: isTraveling ? undefined : f.instanceLanguages,
+                    instanceDisplayName: isTraveling ? undefined : (stats?.displayName || undefined),
+                    instanceDescription: isTraveling ? undefined : (stats?.description || undefined),
+                    instanceCategory: isTraveling ? undefined : (stats?.categoryName || undefined),
+                    instanceVibes: isTraveling ? undefined : stats?.vibeNames,
+                    instanceLanguages: isTraveling ? undefined : stats?.languages,
                 };
             } else {
                 const g = grouped[effectiveLoc];
+                const stats = instanceStatsRef.current.get(effectiveLoc);
                 if (f.instanceType && f.instanceType !== 'Public') {
                     g.instanceType = f.instanceType;
                 }
@@ -484,24 +486,20 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     if (f.worldName && !f.worldName.startsWith('World ')) g.worldName = f.worldName;
                 }
                 if (!g.worldImageUrl && f.worldImageUrl) g.worldImageUrl = f.worldImageUrl;
-                if (f.instanceUserCount != null) {
-                    g.instanceUserCount = f.instanceUserCount;
-                }
-                if (f.instanceCapacity != null && !g.instanceCapacity) {
-                    g.instanceCapacity = f.instanceCapacity;
-                }
+                if (stats?.userCount != null) g.instanceUserCount = stats.userCount;
+                if (stats?.capacity != null) g.instanceCapacity = stats.capacity;
                 if (!g.groupName && f.groupName) g.groupName = f.groupName;
-                if (!g.ownerId && f.ownerId) g.ownerId = f.ownerId;
+                if (!g.ownerId && (stats?.ownerId || f.ownerId)) g.ownerId = stats?.ownerId || f.ownerId;
                 if (!g.ownerName) {
-                    g.ownerName = f.ownerName || (g.ownerId ? friendMap.get(g.ownerId) : undefined);
+                    g.ownerName = stats?.ownerName || f.ownerName || (g.ownerId ? friendMap.get(g.ownerId) : undefined);
                 }
                 if (!g.groupId && f.groupId) g.groupId = f.groupId;
                 if (g.ownerName) g.creatorName = g.ownerName;
-                if (!g.instanceDisplayName && f.instanceDisplayName) g.instanceDisplayName = f.instanceDisplayName;
-                if (!g.instanceDescription && f.instanceDescription) g.instanceDescription = f.instanceDescription;
-                if (!g.instanceCategory && f.instanceCategory) g.instanceCategory = f.instanceCategory;
-                if ((!g.instanceVibes || g.instanceVibes.length === 0) && f.instanceVibes?.length) g.instanceVibes = f.instanceVibes;
-                if ((!g.instanceLanguages || g.instanceLanguages.length === 0) && f.instanceLanguages?.length) g.instanceLanguages = f.instanceLanguages;
+                if (stats?.displayName) g.instanceDisplayName = stats.displayName;
+                if (stats?.description) g.instanceDescription = stats.description;
+                if (stats?.categoryName) g.instanceCategory = stats.categoryName;
+                if (stats?.vibeNames?.length) g.instanceVibes = stats.vibeNames;
+                if (stats?.languages?.length) g.instanceLanguages = stats.languages;
             }
 
             const timestampData = locationTimestampsRef.current.get(f.id);
@@ -523,6 +521,12 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
         // Sort friends within each instance: owner first, then by stay duration (longest first)
         Object.values(grouped).forEach(inst => {
+            const tracked = inst.friends.length + inst.otherFriends.length;
+            if (inst.id !== 'traveling' && !isHiddenPrivateLocation(inst.id)) {
+                if (inst.instanceUserCount == null || inst.instanceUserCount < tracked) {
+                    inst.instanceUserCount = tracked;
+                }
+            }
             const sortFriends = (friends: typeof inst.friends) => {
                 return friends.sort((a, b) => {
                     const aIsOwner = inst.ownerId && a.id === inst.ownerId;
@@ -568,6 +572,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         setInstances(sortedInstances);
         setLastUpdated(new Date());
     }, []);
+    rebuildInstancesRef.current = rebuildInstances;
 
     // Enrich friend data with group name and instance info after location change
     const enrichFriendData = useCallback(async (userId: string, location: string) => {
@@ -677,6 +682,25 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         }
                     }
                 });
+
+                const nextStats = new Map<string, InstanceStats>();
+                currentFriendsMap.forEach((f) => {
+                    if (!f.location?.startsWith('wrld_') || !f.location.includes(':')) return;
+                    const prev = nextStats.get(f.location);
+                    nextStats.set(f.location, {
+                        userCount: f.instanceUserCount ?? prev?.userCount,
+                        capacity: f.instanceCapacity ?? prev?.capacity,
+                        instanceType: f.instanceType || prev?.instanceType,
+                        ownerId: f.ownerId || prev?.ownerId,
+                        ownerName: f.ownerName || prev?.ownerName,
+                        displayName: f.instanceDisplayName || prev?.displayName,
+                        description: f.instanceDescription || prev?.description,
+                        categoryName: f.instanceCategory || prev?.categoryName,
+                        vibeNames: f.instanceVibes?.length ? f.instanceVibes : prev?.vibeNames,
+                        languages: f.instanceLanguages?.length ? f.instanceLanguages : prev?.languages,
+                    });
+                });
+                instanceStatsRef.current = nextStats;
 
                 friendsDataRef.current = currentFriendsMap;
                 saveTimestamps();
@@ -845,6 +869,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const userId = typeof data.userId === 'string' ? data.userId : null;
                 if (!userId) break;
                 const friend = friendsDataRef.current.get(userId);
+                const previousLocation = friend?.location;
 
                 if (friend?.isFavorite) {
                     addLogEntry('Offline', friend.name || friend.displayName || userId, 'Went Offline', 'text-slate-500');
@@ -861,6 +886,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 locationTimestampsRef.current.delete(userId);
                 saveTimestamps();
                 rebuildInstances();
+                if (previousLocation) fetchInstanceInfo(previousLocation);
                 break;
             }
 
@@ -949,11 +975,19 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     groupName: hasLocationChanged ? (groupName || undefined) : (groupName || existingFriend?.groupName),
                     instanceUserCount: hasLocationChanged ? undefined : existingFriend?.instanceUserCount,
                     instanceCapacity: hasLocationChanged ? undefined : existingFriend?.instanceCapacity,
+                    instanceDisplayName: hasLocationChanged ? undefined : existingFriend?.instanceDisplayName,
+                    instanceDescription: hasLocationChanged ? undefined : existingFriend?.instanceDescription,
+                    instanceCategory: hasLocationChanged ? undefined : existingFriend?.instanceCategory,
+                    instanceVibes: hasLocationChanged ? undefined : existingFriend?.instanceVibes,
+                    instanceLanguages: hasLocationChanged ? undefined : existingFriend?.instanceLanguages,
                 });
 
                 if (hasLocationChanged) {
                     locationTimestampsRef.current.set(userId, { location, joinedAt: now });
                     saveTimestamps();
+                    if (previousLocation && previousLocation !== location) {
+                        fetchInstanceInfo(previousLocation);
+                    }
                 }
 
                 if (isFavorite && hasLocationChanged) {
@@ -1065,6 +1099,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             case 'friend-delete': {
                 const userId = typeof data.userId === 'string' ? data.userId : null;
                 if (!userId) break;
+                const previousLocation = friendsDataRef.current.get(userId)?.location;
 
                 friendsDataRef.current.delete(userId);
                 locationTimestampsRef.current.delete(userId);
@@ -1075,10 +1110,11 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 favoriteGroupsRef.current.delete(userId);
                 saveTimestamps();
                 rebuildInstances();
+                if (previousLocation) fetchInstanceInfo(previousLocation);
                 break;
             }
         }
-    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, fetchWorldInfo, enrichFriendData]);
+    }, [rebuildInstances, rebuildOfflineFriends, saveTimestamps, fetchWorldInfo, enrichFriendData, fetchInstanceInfo]);
 
     // Ref for fetchFriends to avoid stale closures in connectSSE
     const fetchFriendsRef = useRef(fetchFriends);

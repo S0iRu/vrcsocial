@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useFriends } from "@/components/providers/FriendsProvider";
+import { vrchatWorldPageUrl } from "@/lib/vrcFields";
 
 type FriendData = {
     id: string;
@@ -13,6 +14,7 @@ type FriendData = {
     status: string;
     state: string;
     statusMessage: string;
+    note?: string;
     icon: string;
     bannerUrl?: string;
     profilePicOverride: string;
@@ -164,7 +166,8 @@ export default function FriendDetailsPage() {
 
     const isOnline = friend.status !== 'offline' && friend.location !== 'offline';
     const isInWorld = friend.location && friend.location.startsWith('wrld_');
-    const isPrivate = friend.location === 'private' || (friend.location && friend.location.includes('private'));
+    const isPrivate = friend.location === 'private';
+    const worldUrl = friend.world?.id ? vrchatWorldPageUrl(friend.world.id) : null;
 
     return (
         <div className="space-y-6 pb-20">
@@ -234,6 +237,9 @@ export default function FriendDetailsPage() {
                         {friend.statusMessage && (
                             <p className="text-slate-300 mt-1">{friend.statusMessage}</p>
                         )}
+                        {friend.note && (
+                            <p className="text-xs text-amber-300/80 mt-1">Note: {friend.note}</p>
+                        )}
                         <p className="text-xs text-slate-500 mt-2 capitalize">
                             Status: {friend.status || 'offline'}
                         </p>
@@ -254,9 +260,9 @@ export default function FriendDetailsPage() {
                         <ExternalLink className="w-4 h-4" />
                         VRChat Profile
                     </a>
-                    {isInWorld && friend.world && (
+                    {isInWorld && worldUrl && (
                         <a
-                            href={`https://vrchat.com/home/world/${friend.world.id}`}
+                            href={worldUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 hover:text-cyan-200 text-sm font-medium transition-colors border border-cyan-500/30"
@@ -426,8 +432,9 @@ export default function FriendDetailsPage() {
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-6">
                                         <div>
                                             <h2 className="text-2xl font-bold text-white mb-1">
+                                                {worldUrl ? (
                                                 <a
-                                                    href={`https://vrchat.com/home/world/${friend.world.id}`}
+                                                    href={worldUrl}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="hover:text-indigo-300 transition-colors inline-flex items-center gap-2"
@@ -436,6 +443,9 @@ export default function FriendDetailsPage() {
                                                     <span>{friend.world.name}</span>
                                                     <ExternalLink className="w-4 h-4 shrink-0 opacity-80" />
                                                 </a>
+                                                ) : (
+                                                    friend.world.name
+                                                )}
                                             </h2>
                                             <p className="text-sm text-slate-300">by {friend.world.authorName}</p>
                                         </div>

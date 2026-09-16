@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
             } catch { /* non-critical */ }
         }
 
+        const occupancy = extras.occupancy ?? extras.n_users ?? extras.userCount;
+
         return NextResponse.json({
             instanceId: extras.instanceId ?? data.instanceId,
             location: extras.location ?? data.location,
@@ -57,8 +59,9 @@ export async function GET(req: NextRequest) {
             type: extras.type ?? data.type,
             ownerId: extras.ownerId ?? data.ownerId,
             ownerName,
-            n_users: extras.n_users,
-            userCount: extras.userCount,
+            occupancy,
+            n_users: occupancy,
+            userCount: occupancy,
             capacity: extras.capacity,
             groupAccessType: extras.groupAccessType,
             displayName: extras.displayName || null,

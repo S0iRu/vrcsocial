@@ -7,6 +7,7 @@ import {
     getInstanceCatalog,
     mergeProfileFields,
     parseInstanceExtras,
+    pickNonEmptyString,
 } from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
@@ -118,9 +119,10 @@ export async function GET(
     }
 
     try {
-        const [userRes, profileRes] = await Promise.all([
+        const [userRes, profileRes, privateRes] = await Promise.all([
             fetch(`${VRC_API_BASE}/users/${id}`, { headers }),
             fetch(`${VRC_API_BASE}/profile/${id}`, { headers }),
+            fetch(`${VRC_API_BASE}/profile/${id}/private`, { headers }),
         ]);
 
         if (!userRes.ok) {
@@ -130,79 +132,79 @@ export async function GET(
 
         const user = await userRes.json();
         const profile = profileRes.ok ? await profileRes.json() : null;
+        const privateProfile = privateRes.ok ? await privateRes.json() : null;
         const profileFields = mergeProfileFields(user, profile);
+        const privateActivity = privateProfile?.activity && typeof privateProfile.activity === 'object'
+            ? privateProfile.activity
+            : null;
+        const location = (typeof user.location === 'string' && user.location)
+            || (typeof privateActivity?.location === 'string' && privateActivity.location)
+            || 'offline';
 
-        // Parse instance info first to get IDs
-        const instanceInfo = parseInstanceInfo(user.location || '');
+        const instanceInfo = parseInstanceInfo(location);
+        const worldId = location.startsWith('wrld_') ? location.split(':')[0] : null;
+        const shouldFetchInstance = location.startsWith('wrld_') && location.includes(':');
 
-        // Fetch world info if user is in a world
-        let worldData = null;
-        if (user.location && user.location.startsWith('wrld_')) {
-            const worldId = user.location.split(':')[0];
+        const fetchJson = async (url: string, label: string) => {
             try {
-                const worldRes = await fetch(`${VRC_API_BASE}/worlds/${worldId}`, { headers });
-                if (worldRes.ok) {
-                    worldData = await worldRes.json();
+                const res = await fetch(url, { headers });
+                if (!res.ok) {
+                    console.error(`[FriendAPI] Failed to fetch ${label}:`, res.status);
+                    return null;
                 }
+                return await res.json();
             } catch (error: unknown) {
-                console.error(`[FriendAPI] Failed to fetch world ${worldId}`, error);
+                console.error(`[FriendAPI] Failed to fetch ${label}`, error);
+                return null;
             }
-        }
+        };
 
-        // Fetch group info if it's a group instance
-        let groupData = null;
-        if (instanceInfo.groupId) {
-            try {
-                const groupRes = await fetch(`${VRC_API_BASE}/groups/${instanceInfo.groupId}`, { headers });
-                if (groupRes.ok) {
-                    groupData = await groupRes.json();
-                }
-            } catch (error: unknown) {
-                console.error(`[FriendAPI] Failed to fetch group ${instanceInfo.groupId}`, error);
-            }
-        }
-
-        // Fetch instance owner info if available
-        let ownerData = null;
-        if (instanceInfo.ownerId) {
-            try {
-                const ownerRes = await fetch(`${VRC_API_BASE}/users/${instanceInfo.ownerId}`, { headers });
-                if (ownerRes.ok) {
-                    ownerData = await ownerRes.json();
-                }
-            } catch (error: unknown) {
-                console.error(`[FriendAPI] Failed to fetch owner ${instanceInfo.ownerId}`, error);
-            }
-        }
-
-        let instanceExtras = parseInstanceExtras(null);
-        if (user.location && typeof user.location === 'string' && user.location.startsWith('wrld_') && user.location.includes(':')) {
-            try {
-                const [instRes, catalog] = await Promise.all([
-                    fetch(`${VRC_API_BASE}/instances/${user.location}`, { headers }),
-                    getInstanceCatalog(headers),
-                ]);
-                if (instRes.ok) {
-                    instanceExtras = parseInstanceExtras(await instRes.json(), catalog);
-                }
-            } catch (error: unknown) {
-                console.error('[FriendAPI] Failed to fetch instance extras', error);
-            }
-        }
+        const [worldData, groupData, ownerData, instanceExtras] = await Promise.all([
+            worldId ? fetchJson(`${VRC_API_BASE}/worlds/${worldId}`, `world ${worldId}`) : Promise.resolve(null),
+            instanceInfo.groupId
+                ? fetchJson(`${VRC_API_BASE}/groups/${instanceInfo.groupId}`, `group ${instanceInfo.groupId}`)
+                : Promise.resolve(null),
+            instanceInfo.ownerId
+                ? fetchJson(`${VRC_API_BASE}/users/${instanceInfo.ownerId}`, `owner ${instanceInfo.ownerId}`)
+                : Promise.resolve(null),
+            shouldFetchInstance
+                ? (async () => {
+                    try {
+                        const [instRes, catalog] = await Promise.all([
+                            fetch(`${VRC_API_BASE}/instances/${location}`, { headers }),
+                            getInstanceCatalog(headers),
+                        ]);
+                        if (instRes.ok) {
+                            return parseInstanceExtras(await instRes.json(), catalog);
+                        }
+                    } catch (error: unknown) {
+                        console.error('[FriendAPI] Failed to fetch instance extras', error);
+                    }
+                    return parseInstanceExtras(null);
+                })()
+                : Promise.resolve(parseInstanceExtras(null)),
+        ]);
 
         let displayStatus = 'offline';
-        if (user.state === 'online' || user.state === 'active') {
-            displayStatus = user.status || 'active';
-        } else if (user.location && user.location !== 'offline') {
-            displayStatus = user.status || 'active';
+        const state = user.state || privateActivity?.state || 'offline';
+        const statusFromPrivate = typeof privateProfile?.status === 'string' ? privateProfile.status : '';
+        const statusMessage = pickNonEmptyString(
+            privateProfile?.statusDescription,
+            user.statusDescription
+        );
+        if (state === 'online' || state === 'active') {
+            displayStatus = statusFromPrivate || user.status || 'active';
+        } else if (location && location !== 'offline') {
+            displayStatus = statusFromPrivate || user.status || 'active';
         }
 
         const friendData = {
             id: user.id,
             name: user.displayName,
             status: displayStatus,
-            state: user.state || 'offline',
-            statusMessage: user.statusDescription || '',
+            state,
+            statusMessage,
+            note: pickNonEmptyString(privateProfile?.note),
             icon: profileFields.icon,
             bannerUrl: profileFields.bannerUrl,
             profilePicOverride: profileFields.profilePicOverride,
@@ -212,7 +214,7 @@ export async function GET(
             badges: profileFields.badges,
             representedGroup: profileFields.representedGroup,
             trust: profileFields.trust,
-            location: user.location || 'offline',
+            location,
             world: worldData ? {
                 id: worldData.id,
                 name: worldData.name,
@@ -236,12 +238,12 @@ export async function GET(
                 categoryName: instanceExtras.categoryName || null,
                 vibeNames: instanceExtras.vibeNames,
                 languages: instanceExtras.languages,
-                userCount: instanceExtras.n_users ?? instanceExtras.userCount ?? null,
+                userCount: instanceExtras.occupancy ?? instanceExtras.n_users ?? instanceExtras.userCount ?? null,
                 capacity: instanceExtras.capacity ?? null,
             },
-            lastLogin: user.last_login,
+            lastLogin: user.last_login || privateActivity?.last_login,
             dateJoined: user.date_joined,
-            isFriend: user.isFriend,
+            isFriend: user.isFriend ?? privateProfile?.isFriend,
         };
 
         return NextResponse.json(friendData);

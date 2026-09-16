@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Star, History, LogOut, BarChart3 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { pickUserImageUrl } from '@/lib/vrcApi';
+import { pickUserImageUrl } from '@/lib/vrcFields';
 
 type SidebarUser = {
   displayName?: string;

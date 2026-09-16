@@ -425,7 +425,18 @@ export default function FriendDetailsPage() {
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-6">
                                         <div>
-                                            <h2 className="text-2xl font-bold text-white mb-1">{friend.world.name}</h2>
+                                            <h2 className="text-2xl font-bold text-white mb-1">
+                                                <a
+                                                    href={`https://vrchat.com/home/world/${friend.world.id}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="hover:text-indigo-300 transition-colors inline-flex items-center gap-2"
+                                                    title="Open VRChat world page"
+                                                >
+                                                    <span>{friend.world.name}</span>
+                                                    <ExternalLink className="w-4 h-4 shrink-0 opacity-80" />
+                                                </a>
+                                            </h2>
                                             <p className="text-sm text-slate-300">by {friend.world.authorName}</p>
                                         </div>
                                     </div>

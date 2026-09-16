@@ -1,10 +1,35 @@
 'use client';
 
-import { Globe, User, Star, Users, Loader2, RefreshCw, Clock, Wifi, WifiOff, Lock, Plane } from "lucide-react";
+import { Globe, User, Star, Users, Loader2, RefreshCw, Clock, Wifi, WifiOff, Lock, Plane, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { useFriends, ConnectionState } from "@/components/providers/FriendsProvider";
 import { useState, useEffect } from "react";
+
+const vrchatWorldPageUrl = (location: string): string | null => {
+    const worldId = location.startsWith('wrld_') ? location.split(':')[0] : '';
+    return worldId.startsWith('wrld_') ? `https://vrchat.com/home/world/${worldId}` : null;
+};
+
+function WorldNameLink({ location, name }: { location: string; name: string }) {
+    const worldUrl = vrchatWorldPageUrl(location);
+    if (!worldUrl) {
+        return <h3 className="font-bold text-white text-base md:text-lg line-clamp-1">{name}</h3>;
+    }
+
+    return (
+        <a
+            href={worldUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-white text-base md:text-lg hover:text-indigo-400 transition-colors inline-flex items-center gap-1.5 max-w-full"
+            title="Open VRChat world page"
+        >
+            <span className="line-clamp-1">{name}</span>
+            <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-60" />
+        </a>
+    );
+}
 
 // Format duration from timestamp
 const formatDuration = (joinedAt: number | undefined): string => {
@@ -159,9 +184,7 @@ export default function FavoritesPage() {
                                                     )}
                                                 </div>
                                                 <div>
-                                                    <h3 className="font-bold text-white text-base md:text-lg line-clamp-1 group-hover:text-indigo-400 transition-colors">
-                                                        {group.worldName}
-                                                    </h3>
+                                                    <WorldNameLink location={group.id} name={group.worldName} />
                                                     {group.instanceDisplayName && (
                                                         <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
                                                             {group.instanceDisplayName}

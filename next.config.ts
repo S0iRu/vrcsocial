@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
+        hostname: '*.vrchat.cloud',
+      },
+      {
+        protocol: 'https',
         hostname: 'api.vrchat.cloud',
       },
       {
@@ -51,7 +55,7 @@ const nextConfig: NextConfig = {
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: blob: https://api.vrchat.cloud https://files.vrchat.cloud https://*.cloudfront.net",
+              "img-src 'self' data: blob: https://*.vrchat.cloud https://api.vrchat.cloud https://files.vrchat.cloud https://*.cloudfront.net",
               "connect-src 'self' https://api.vrchat.cloud",
               "frame-ancestors 'none'",
               "base-uri 'self'",

@@ -1,33 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import {
+    VRC_API_BASE,
+    buildVrcHeaders,
+    getInstanceCatalog,
+    mergeProfileFields,
+    parseInstanceExtras,
+} from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
 
-const API_BASE = 'https://api.vrchat.cloud/api/1';
-const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
-
-// Helper to build auth headers (only uses session cookies, no stored credentials)
 async function getAuthHeaders(): Promise<Record<string, string> | null> {
     const cookieStore = await cookies();
-    const authCookie = cookieStore.get('auth')?.value;
-    const twoFactorCookie = cookieStore.get('twoFactorAuth')?.value;
-
-    // Only proceed if we have a valid auth cookie (no credential storage)
-    if (!authCookie) {
-        return null;
-    }
-
-    const headers: Record<string, string> = {
-        'User-Agent': USER_AGENT,
-        'Accept': 'application/json'
-    };
-
-    let cookieStr = `auth=${authCookie}`;
-    if (twoFactorCookie) cookieStr += `; twoFactorAuth=${twoFactorCookie}`;
-    headers['Cookie'] = cookieStr;
-
-    return headers;
+    return buildVrcHeaders(
+        cookieStore.get('auth')?.value,
+        cookieStore.get('twoFactorAuth')?.value
+    );
 }
 
 // Parse instance info from location string
@@ -106,26 +95,6 @@ function parseInstanceInfo(location: string) {
     return { instanceType, region, instanceId, ownerId, groupId };
 }
 
-// Get trust rank display name
-// VRChat Trust System:
-// - system_trust_legend / system_trust_veteran → Trusted User (purple)
-// - system_trust_trusted → Known User (orange)
-// - system_trust_known → User (green)
-// - system_trust_basic → New User (blue)
-// - none → Visitor (gray)
-function getTrustRank(tags: string[]): string {
-    if (!tags || !Array.isArray(tags)) return 'Visitor';
-    
-    if (tags.includes('system_trust_legend') || tags.includes('system_trust_veteran')) {
-        return 'Trusted User';
-    }
-    if (tags.includes('system_trust_trusted')) return 'Known User';
-    if (tags.includes('system_trust_known')) return 'User';
-    if (tags.includes('system_trust_basic')) return 'New User';
-    
-    return 'Visitor';
-}
-
 export async function GET(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
@@ -149,15 +118,19 @@ export async function GET(
     }
 
     try {
-        // Fetch user details
-        const userRes = await fetch(`${API_BASE}/users/${id}`, { headers });
-        
+        const [userRes, profileRes] = await Promise.all([
+            fetch(`${VRC_API_BASE}/users/${id}`, { headers }),
+            fetch(`${VRC_API_BASE}/profile/${id}`, { headers }),
+        ]);
+
         if (!userRes.ok) {
             console.error(`[FriendAPI] Failed to fetch user ${id}:`, userRes.status);
             return NextResponse.json({ error: 'Failed to fetch user' }, { status: userRes.status });
         }
 
         const user = await userRes.json();
+        const profile = profileRes.ok ? await profileRes.json() : null;
+        const profileFields = mergeProfileFields(user, profile);
 
         // Parse instance info first to get IDs
         const instanceInfo = parseInstanceInfo(user.location || '');
@@ -167,7 +140,7 @@ export async function GET(
         if (user.location && user.location.startsWith('wrld_')) {
             const worldId = user.location.split(':')[0];
             try {
-                const worldRes = await fetch(`${API_BASE}/worlds/${worldId}`, { headers });
+                const worldRes = await fetch(`${VRC_API_BASE}/worlds/${worldId}`, { headers });
                 if (worldRes.ok) {
                     worldData = await worldRes.json();
                 }
@@ -180,7 +153,7 @@ export async function GET(
         let groupData = null;
         if (instanceInfo.groupId) {
             try {
-                const groupRes = await fetch(`${API_BASE}/groups/${instanceInfo.groupId}`, { headers });
+                const groupRes = await fetch(`${VRC_API_BASE}/groups/${instanceInfo.groupId}`, { headers });
                 if (groupRes.ok) {
                     groupData = await groupRes.json();
                 }
@@ -193,7 +166,7 @@ export async function GET(
         let ownerData = null;
         if (instanceInfo.ownerId) {
             try {
-                const ownerRes = await fetch(`${API_BASE}/users/${instanceInfo.ownerId}`, { headers });
+                const ownerRes = await fetch(`${VRC_API_BASE}/users/${instanceInfo.ownerId}`, { headers });
                 if (ownerRes.ok) {
                     ownerData = await ownerRes.json();
                 }
@@ -202,17 +175,25 @@ export async function GET(
             }
         }
 
-        // Build response
-        // VRChat API returns:
-        // - state: actual online state ("online", "active", "offline")
-        // - status: user-set status ("active", "join me", "ask me", "busy")
-        // For the status indicator, we need to check both
+        let instanceExtras = parseInstanceExtras(null);
+        if (user.location && typeof user.location === 'string' && user.location.startsWith('wrld_') && user.location.includes(':')) {
+            try {
+                const [instRes, catalog] = await Promise.all([
+                    fetch(`${VRC_API_BASE}/instances/${user.location}`, { headers }),
+                    getInstanceCatalog(headers),
+                ]);
+                if (instRes.ok) {
+                    instanceExtras = parseInstanceExtras(await instRes.json(), catalog);
+                }
+            } catch (error: unknown) {
+                console.error('[FriendAPI] Failed to fetch instance extras', error);
+            }
+        }
+
         let displayStatus = 'offline';
         if (user.state === 'online' || user.state === 'active') {
-            // User is online, use their set status
             displayStatus = user.status || 'active';
         } else if (user.location && user.location !== 'offline') {
-            // User has a location, they're likely online
             displayStatus = user.status || 'active';
         }
 
@@ -222,11 +203,15 @@ export async function GET(
             status: displayStatus,
             state: user.state || 'offline',
             statusMessage: user.statusDescription || '',
-            icon: user.userIcon || user.profilePicOverride || user.currentAvatarThumbnailImageUrl || user.currentAvatarImageUrl || '',
-            profilePicOverride: user.profilePicOverride || '',
-            bio: user.bio || '',
-            bioLinks: user.bioLinks || [],
-            trust: getTrustRank(user.tags || []),
+            icon: profileFields.icon,
+            bannerUrl: profileFields.bannerUrl,
+            profilePicOverride: profileFields.profilePicOverride,
+            bio: profileFields.bio,
+            bioLinks: profileFields.bioLinks,
+            pronouns: profileFields.pronouns,
+            badges: profileFields.badges,
+            representedGroup: profileFields.representedGroup,
+            trust: profileFields.trust,
             location: user.location || 'offline',
             world: worldData ? {
                 id: worldData.id,
@@ -246,6 +231,13 @@ export async function GET(
                 ownerName: ownerData?.displayName || null,
                 groupId: instanceInfo.groupId,
                 groupName: groupData?.name || null,
+                displayName: instanceExtras.displayName || null,
+                description: instanceExtras.description || null,
+                categoryName: instanceExtras.categoryName || null,
+                vibeNames: instanceExtras.vibeNames,
+                languages: instanceExtras.languages,
+                userCount: instanceExtras.n_users ?? instanceExtras.userCount ?? null,
+                capacity: instanceExtras.capacity ?? null,
             },
             lastLogin: user.last_login,
             dateJoined: user.date_joined,

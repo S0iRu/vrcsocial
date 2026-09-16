@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { pickUserImageUrl } from '@/lib/vrcApi';
 
 // Types
 type Friend = {
@@ -25,6 +26,11 @@ type Friend = {
     groupName?: string;
     instanceUserCount?: number;
     instanceCapacity?: number;
+    instanceDisplayName?: string | null;
+    instanceDescription?: string | null;
+    instanceCategory?: string | null;
+    instanceVibes?: string[];
+    instanceLanguages?: string[];
     last_login?: string;
     last_activity?: string;
 };
@@ -60,6 +66,11 @@ type InstanceGroup = {
     groupName?: string;
     ownerId?: string;
     ownerName?: string;
+    instanceDisplayName?: string;
+    instanceDescription?: string;
+    instanceCategory?: string;
+    instanceVibes?: string[];
+    instanceLanguages?: string[];
 };
 
 type TimestampEntry = {
@@ -377,6 +388,15 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     const ownerId = typeof data.ownerId === 'string' ? data.ownerId : undefined;
                     const ownerName = typeof data.ownerName === 'string' ? data.ownerName : undefined;
                     const capacity = typeof data.capacity === 'number' ? data.capacity : undefined;
+                    const displayName = typeof data.displayName === 'string' ? data.displayName : undefined;
+                    const description = typeof data.description === 'string' ? data.description : undefined;
+                    const categoryName = typeof data.categoryName === 'string' ? data.categoryName : undefined;
+                    const vibeNames = Array.isArray(data.vibeNames)
+                        ? data.vibeNames.filter((item): item is string => typeof item === 'string')
+                        : undefined;
+                    const languages = Array.isArray(data.languages)
+                        ? data.languages.filter((item): item is string => typeof item === 'string')
+                        : undefined;
 
                     let updated = false;
                     friendsDataRef.current.forEach((f, id) => {
@@ -387,6 +407,11 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                             if (instanceType) patch.instanceType = instanceType;
                             if (ownerId) patch.ownerId = ownerId;
                             if (ownerName) patch.ownerName = ownerName;
+                            if (displayName) patch.instanceDisplayName = displayName;
+                            if (description) patch.instanceDescription = description;
+                            if (categoryName) patch.instanceCategory = categoryName;
+                            if (vibeNames) patch.instanceVibes = vibeNames;
+                            if (languages) patch.instanceLanguages = languages;
                             if (Object.keys(patch).length > 0) {
                                 friendsDataRef.current.set(id, { ...f, ...patch });
                                 updated = true;
@@ -444,6 +469,11 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     groupName: isTraveling ? undefined : f.groupName,
                     ownerId: isTraveling ? undefined : (f.ownerId || (info?.creatorId ?? undefined)),
                     ownerName: isTraveling ? undefined : ownerName,
+                    instanceDisplayName: isTraveling ? undefined : (f.instanceDisplayName || undefined),
+                    instanceDescription: isTraveling ? undefined : (f.instanceDescription || undefined),
+                    instanceCategory: isTraveling ? undefined : (f.instanceCategory || undefined),
+                    instanceVibes: isTraveling ? undefined : f.instanceVibes,
+                    instanceLanguages: isTraveling ? undefined : f.instanceLanguages,
                 };
             } else {
                 const g = grouped[effectiveLoc];
@@ -467,6 +497,11 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 }
                 if (!g.groupId && f.groupId) g.groupId = f.groupId;
                 if (g.ownerName) g.creatorName = g.ownerName;
+                if (!g.instanceDisplayName && f.instanceDisplayName) g.instanceDisplayName = f.instanceDisplayName;
+                if (!g.instanceDescription && f.instanceDescription) g.instanceDescription = f.instanceDescription;
+                if (!g.instanceCategory && f.instanceCategory) g.instanceCategory = f.instanceCategory;
+                if ((!g.instanceVibes || g.instanceVibes.length === 0) && f.instanceVibes?.length) g.instanceVibes = f.instanceVibes;
+                if ((!g.instanceLanguages || g.instanceLanguages.length === 0) && f.instanceLanguages?.length) g.instanceLanguages = f.instanceLanguages;
             }
 
             const timestampData = locationTimestampsRef.current.get(f.id);
@@ -659,6 +694,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         id: f.id,
                         name: f.name || f.displayName || 'Unknown',
                         displayName: f.name || f.displayName,
+                        icon: f.icon || f.userIcon,
                         userIcon: f.icon || f.userIcon,
                         status: f.status || 'offline',
                         location: 'offline',
@@ -676,6 +712,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                             id: f.id,
                             name: f.name || f.displayName || 'Unknown',
                             displayName: f.name || f.displayName,
+                            icon: f.icon || f.userIcon,
                             userIcon: f.icon || f.userIcon,
                             status: f.status || 'active',
                             location: 'offline',
@@ -774,10 +811,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     name: user.displayName,
                     status: typeof user.status === 'string' ? user.status : 'active',
                     statusMsg: typeof user.statusDescription === 'string' ? user.statusDescription : undefined,
-                    icon: (typeof user.userIcon === 'string' && user.userIcon)
-                        || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
-                        || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
-                        || '',
+                    icon: pickUserImageUrl(user) || '',
                     location,
                     worldName: worldName || (location === 'private' ? 'Private World' : undefined),
                     worldImageUrl,
@@ -901,11 +935,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     name: user.displayName,
                     status: (typeof user.status === 'string' && user.status) || existingFriend?.status || 'active',
                     statusMsg: (typeof user.statusDescription === 'string' && user.statusDescription) || existingFriend?.statusMsg,
-                    icon: (typeof user.userIcon === 'string' && user.userIcon)
-                        || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
-                        || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
-                        || existingFriend?.icon
-                        || '',
+                    icon: pickUserImageUrl(user) || existingFriend?.icon || '',
                     location,
                     worldName: worldName || (location === 'private' ? 'Private World' : undefined),
                     worldImageUrl,
@@ -945,10 +975,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 if (!userId || !user || typeof user.displayName !== 'string') break;
                 const existingFriend = friendsDataRef.current.get(userId);
 
-                const newIcon = (typeof user.userIcon === 'string' && user.userIcon)
-                    || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
-                    || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
-                    || undefined;
+                const newIcon = pickUserImageUrl(user) || undefined;
                 const newStatus = typeof user.status === 'string' ? user.status : undefined;
                 const newStatusMsg = typeof user.statusDescription === 'string' ? user.statusDescription : undefined;
 
@@ -1027,10 +1054,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                             location,
                             isFavorite: favoriteIdsRef.current.has(userId),
                             favoriteGroup: favoriteGroupsRef.current.get(userId),
-                            icon: (typeof user.userIcon === 'string' && user.userIcon)
-                                || (typeof user.profilePicOverride === 'string' && user.profilePicOverride)
-                                || (typeof user.currentAvatarThumbnailImageUrl === 'string' && user.currentAvatarThumbnailImageUrl)
-                                || '',
+                            icon: pickUserImageUrl(user) || '',
                         });
                         rebuildInstances();
                     }

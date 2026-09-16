@@ -4,10 +4,16 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Star, History, LogOut, BarChart3 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { pickUserImageUrl } from '@/lib/vrcApi';
 
 type SidebarUser = {
   displayName?: string;
+  icon?: string;
   currentAvatarThumbnailImageUrl?: string;
+  userIcon?: string;
+  iconUrl?: string;
+  profilePicOverride?: string;
+  profilePicOverrideThumbnail?: string;
 };
 
 const Sidebar = () => {
@@ -57,6 +63,8 @@ const Sidebar = () => {
     { icon: BarChart3, label: 'Graph', href: '/graph' },
   ];
 
+  const avatarUrl = pickUserImageUrl(user);
+
   return (
     <>
       <aside className="hidden md:flex fixed left-0 top-0 h-screen w-64 glass border-r border-white/5 flex-col z-50">
@@ -93,8 +101,8 @@ const Sidebar = () => {
             ) : (
               <>
                 <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold overflow-hidden shadow-sm border border-white/10 shrink-0">
-                  {user?.currentAvatarThumbnailImageUrl ? (
-                    <Image src={user.currentAvatarThumbnailImageUrl} alt="User" width={40} height={40} className="w-full h-full object-cover" unoptimized />
+                  {avatarUrl ? (
+                    <Image src={avatarUrl} alt="User" width={40} height={40} className="w-full h-full object-cover" unoptimized />
                   ) : (
                     'U'
                   )}

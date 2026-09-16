@@ -10,13 +10,27 @@ import { useFriends } from "@/components/providers/FriendsProvider";
 type FriendData = {
     id: string;
     name: string;
-    status: string;  // User-set status: active, join me, ask me, busy
-    state: string;   // Online state: online, active, offline
+    status: string;
+    state: string;
     statusMessage: string;
     icon: string;
+    bannerUrl?: string;
     profilePicOverride: string;
     bio: string;
     bioLinks: string[];
+    pronouns?: string;
+    badges?: {
+        badgeId: string;
+        badgeName: string;
+        badgeDescription?: string;
+        badgeImageUrl?: string;
+        showcased?: boolean;
+    }[];
+    representedGroup?: {
+        id: string;
+        name: string;
+        iconUrl?: string;
+    } | null;
     trust: string;
     location: string;
     world: {
@@ -37,6 +51,13 @@ type FriendData = {
         ownerName: string | null;
         groupId: string | null;
         groupName: string | null;
+        displayName?: string | null;
+        description?: string | null;
+        categoryName?: string | null;
+        vibeNames?: string[];
+        languages?: string[];
+        userCount?: number | null;
+        capacity?: number | null;
     };
     lastLogin: string;
     dateJoined: string;
@@ -156,9 +177,9 @@ export default function FriendDetailsPage() {
             <div className="relative rounded-2xl overflow-hidden glass-card group">
                 {/* Banner */}
                 <div className="h-48 bg-gradient-to-br from-indigo-900/50 to-slate-900 relative">
-                    {friend.profilePicOverride && (
+                    {(friend.bannerUrl || friend.profilePicOverride) && (
                         <Image
-                            src={friend.profilePicOverride}
+                            src={friend.bannerUrl || friend.profilePicOverride}
                             alt="Banner"
                             fill
                             sizes="100vw"
@@ -192,6 +213,24 @@ export default function FriendDetailsPage() {
                                 {friend.trust}
                             </span>
                         </div>
+                        {friend.pronouns && (
+                            <p className="text-slate-400 text-sm mt-1">{friend.pronouns}</p>
+                        )}
+                        {friend.representedGroup && (
+                            <p className="text-cyan-300 text-sm mt-1 flex items-center gap-2">
+                                {friend.representedGroup.iconUrl && (
+                                    <Image
+                                        src={friend.representedGroup.iconUrl}
+                                        alt={friend.representedGroup.name}
+                                        width={16}
+                                        height={16}
+                                        className="w-4 h-4 rounded-sm object-cover"
+                                        unoptimized
+                                    />
+                                )}
+                                {friend.representedGroup.name}
+                            </p>
+                        )}
                         {friend.statusMessage && (
                             <p className="text-slate-300 mt-1">{friend.statusMessage}</p>
                         )}
@@ -239,6 +278,33 @@ export default function FriendDetailsPage() {
                     )}
                 </div>
             </div>
+
+            {friend.badges && friend.badges.length > 0 && (
+                <div className="glass-card p-6 rounded-2xl">
+                    <h3 className="text-lg font-bold text-white mb-3">Badges</h3>
+                    <div className="flex flex-wrap gap-3">
+                        {friend.badges.map((badge) => (
+                            <div
+                                key={badge.badgeId}
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10"
+                                title={badge.badgeDescription || badge.badgeName}
+                            >
+                                {badge.badgeImageUrl ? (
+                                    <Image
+                                        src={badge.badgeImageUrl}
+                                        alt={badge.badgeName}
+                                        width={28}
+                                        height={28}
+                                        className="w-7 h-7 object-contain"
+                                        unoptimized
+                                    />
+                                ) : null}
+                                <span className="text-sm text-slate-200">{badge.badgeName}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Bio */}
             {friend.bio && (
@@ -371,6 +437,9 @@ export default function FriendDetailsPage() {
                                         <p className="text-white font-medium mt-1">
                                             {friend.instance.type} {friend.instance.id && `#${friend.instance.id}`}
                                         </p>
+                                        {friend.instance.displayName && (
+                                            <p className="text-xs text-slate-400 mt-1">{friend.instance.displayName}</p>
+                                        )}
                                     </div>
                                     <div className="p-3 rounded-xl bg-white/5 border border-white/5">
                                         <p className="text-xs text-slate-400 uppercase">Region</p>
@@ -378,6 +447,38 @@ export default function FriendDetailsPage() {
                                             <Globe className="w-4 h-4 text-slate-400" /> {friend.instance.region}
                                         </p>
                                     </div>
+                                    {friend.instance.categoryName && (
+                                        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                                            <p className="text-xs text-slate-400 uppercase">Category</p>
+                                            <p className="text-white font-medium mt-1">{friend.instance.categoryName}</p>
+                                        </div>
+                                    )}
+                                    {(friend.instance.userCount != null || friend.instance.capacity != null) && (
+                                        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                                            <p className="text-xs text-slate-400 uppercase">Users</p>
+                                            <p className="text-white font-medium mt-1">
+                                                {friend.instance.userCount ?? '-'} / {friend.instance.capacity ?? '-'}
+                                            </p>
+                                        </div>
+                                    )}
+                                    {friend.instance.description && (
+                                        <div className="p-3 rounded-xl bg-white/5 border border-white/5 col-span-2">
+                                            <p className="text-xs text-slate-400 uppercase">Description</p>
+                                            <p className="text-white font-medium mt-1 whitespace-pre-wrap">{friend.instance.description}</p>
+                                        </div>
+                                    )}
+                                    {friend.instance.vibeNames && friend.instance.vibeNames.length > 0 && (
+                                        <div className="p-3 rounded-xl bg-white/5 border border-white/5 col-span-2">
+                                            <p className="text-xs text-slate-400 uppercase">Vibes</p>
+                                            <p className="text-white font-medium mt-1">{friend.instance.vibeNames.join(', ')}</p>
+                                        </div>
+                                    )}
+                                    {friend.instance.languages && friend.instance.languages.length > 0 && (
+                                        <div className="p-3 rounded-xl bg-white/5 border border-white/5 col-span-2">
+                                            <p className="text-xs text-slate-400 uppercase">Languages</p>
+                                            <p className="text-white font-medium mt-1">{friend.instance.languages.join(', ')}</p>
+                                        </div>
+                                    )}
                                     {/* Show group name for group instances, or owner for other instances */}
                                     {friend.instance.groupName ? (
                                         <div className="p-3 rounded-xl bg-white/5 border border-white/5 col-span-2">
@@ -428,8 +529,8 @@ export default function FriendDetailsPage() {
                                         className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group"
                                     >
                                         <div className="w-10 h-10 rounded-full bg-slate-800 overflow-hidden">
-                                            {f.icon ? (
-                                                <Image src={f.icon} alt={f.name} width={40} height={40} className="w-full h-full object-cover" unoptimized />
+                                            {f.icon || f.userIcon ? (
+                                                <Image src={f.icon || f.userIcon || ''} alt={f.name} width={40} height={40} className="w-full h-full object-cover" unoptimized />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center text-slate-500">
                                                     {f.name?.charAt(0) || '?'}

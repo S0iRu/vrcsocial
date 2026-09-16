@@ -162,6 +162,11 @@ export default function FavoritesPage() {
                                                     <h3 className="font-bold text-white text-base md:text-lg line-clamp-1 group-hover:text-indigo-400 transition-colors">
                                                         {group.worldName}
                                                     </h3>
+                                                    {group.instanceDisplayName && (
+                                                        <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
+                                                            {group.instanceDisplayName}
+                                                        </p>
+                                                    )}
                                                     <div className="flex flex-wrap items-center gap-2 mt-1">
                                                         <span className={`text-[10px] md:text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 border border-white/10 ${
                                                             group.instanceType === 'Invite' || group.instanceType === 'Invite+' ? 'text-rose-400 border-rose-500/30' :
@@ -171,6 +176,11 @@ export default function FavoritesPage() {
                                                         }`}>
                                                             {group.instanceType}
                                                         </span>
+                                                        {group.instanceCategory && (
+                                                            <span className="text-[10px] md:text-xs text-violet-300 bg-violet-500/10 px-1.5 rounded">
+                                                                {group.instanceCategory}
+                                                            </span>
+                                                        )}
                                                         {group.region && (
                                                             <span className="text-[10px] md:text-xs text-slate-500 font-mono">
                                                                 {group.region}
@@ -197,6 +207,11 @@ export default function FavoritesPage() {
                                                 ★{group.userCount}/{group.friends.length + group.otherFriends.length}/{group.instanceUserCount || '-'}/{group.instanceCapacity || '-'}
                                             </span>
                                         </div>
+                                        {group.instanceDescription && (
+                                            <p className="text-[11px] md:text-xs text-slate-500 mt-3 line-clamp-2">
+                                                {group.instanceDescription}
+                                            </p>
+                                        )}
                                     </div>
 
                                     {/* Friends List */}
@@ -479,8 +494,8 @@ export default function FavoritesPage() {
                                                     >
                                                         <div className="relative mb-2">
                                                             <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-slate-700 overflow-hidden ring-2 ring-slate-600/30 group-hover/friend:ring-slate-500/50 transition-all">
-                                                                {friend.userIcon ? (
-                                                                    <Image src={friend.userIcon} alt={friend.displayName || friend.name} width={48} height={48} className="w-full h-full object-cover grayscale" unoptimized />
+                                                                {friend.icon || friend.userIcon ? (
+                                                                    <Image src={friend.icon || friend.userIcon || ''} alt={friend.displayName || friend.name} width={48} height={48} className="w-full h-full object-cover grayscale" unoptimized />
                                                                 ) : (
                                                                     <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">IMG</div>
                                                                 )}

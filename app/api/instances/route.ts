@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { VRC_API_BASE, buildVrcHeaders, getInstanceCatalog, parseInstanceExtras } from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
-
-const API_BASE = 'https://api.vrchat.cloud/api/1';
-const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
 export async function GET(req: NextRequest) {
     const rateCheck = checkRateLimit(req, 'instances');
@@ -19,32 +17,32 @@ export async function GET(req: NextRequest) {
     }
 
     const cookieStore = await cookies();
-    const authCookie = cookieStore.get('auth')?.value;
+    const headers = buildVrcHeaders(
+        cookieStore.get('auth')?.value,
+        cookieStore.get('twoFactorAuth')?.value
+    );
 
-    if (!authCookie) {
+    if (!headers) {
         return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const headers: Record<string, string> = {
-        'User-Agent': USER_AGENT,
-        'Accept': 'application/json',
-        'Cookie': `auth=${authCookie}`
-    };
-
     try {
-        const res = await fetch(`${API_BASE}/instances/${location}`, { headers });
+        const [res, catalog] = await Promise.all([
+            fetch(`${VRC_API_BASE}/instances/${location}`, { headers }),
+            getInstanceCatalog(headers),
+        ]);
 
         if (!res.ok) {
             return NextResponse.json({ error: 'Failed to fetch instance' }, { status: res.status });
         }
 
         const data = await res.json();
+        const extras = parseInstanceExtras(data, catalog);
 
-        // Resolve owner name if ownerId is present
         let ownerName: string | null = null;
-        if (data.ownerId && typeof data.ownerId === 'string' && data.ownerId.startsWith('usr_')) {
+        if (extras.ownerId && extras.ownerId.startsWith('usr_')) {
             try {
-                const userRes = await fetch(`${API_BASE}/users/${data.ownerId}`, { headers });
+                const userRes = await fetch(`${VRC_API_BASE}/users/${extras.ownerId}`, { headers });
                 if (userRes.ok) {
                     const userData = await userRes.json();
                     if (userData?.displayName) ownerName = userData.displayName;
@@ -53,16 +51,21 @@ export async function GET(req: NextRequest) {
         }
 
         return NextResponse.json({
-            instanceId: data.instanceId,
-            location: data.location,
-            worldId: data.worldId,
-            type: data.type,
-            ownerId: data.ownerId,
+            instanceId: extras.instanceId ?? data.instanceId,
+            location: extras.location ?? data.location,
+            worldId: extras.worldId ?? data.worldId,
+            type: extras.type ?? data.type,
+            ownerId: extras.ownerId ?? data.ownerId,
             ownerName,
-            n_users: data.n_users,
-            userCount: data.userCount,
-            capacity: data.capacity,
-            groupAccessType: data.groupAccessType,
+            n_users: extras.n_users,
+            userCount: extras.userCount,
+            capacity: extras.capacity,
+            groupAccessType: extras.groupAccessType,
+            displayName: extras.displayName || null,
+            description: extras.description || null,
+            categoryName: extras.categoryName || null,
+            vibeNames: extras.vibeNames,
+            languages: extras.languages,
         });
     } catch (error: unknown) {
         console.error('[InstancesAPI] Error:', error);

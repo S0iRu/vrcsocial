@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { VRC_API_BASE, buildVrcHeaders } from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
-
-const API_BASE = 'https://api.vrchat.cloud/api/1';
-const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
 /**
  * GET /api/worlds/[id]
@@ -34,23 +32,20 @@ export async function GET(
     }
 
     const cookieStore = await cookies();
-    const authCookie = cookieStore.get('auth')?.value;
+    const headers = buildVrcHeaders(
+        cookieStore.get('auth')?.value,
+        cookieStore.get('twoFactorAuth')?.value
+    );
 
-    if (!authCookie) {
+    if (!headers) {
         return NextResponse.json(
             { error: 'Not authenticated' },
             { status: 401 }
         );
     }
 
-    const headers: Record<string, string> = {
-        'User-Agent': USER_AGENT,
-        'Accept': 'application/json',
-        'Cookie': `auth=${authCookie}`
-    };
-
     try {
-        const res = await fetch(`${API_BASE}/worlds/${worldId}`, { headers });
+        const res = await fetch(`${VRC_API_BASE}/worlds/${worldId}`, { headers });
 
         if (!res.ok) {
             console.error(`[WorldsAPI] Failed to fetch world ${worldId}:`, res.status);

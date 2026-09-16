@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import {
+    VRC_API_BASE,
+    buildVrcHeaders,
+    getInstanceCatalog,
+    parseInstanceExtras,
+    pickUserImageUrl,
+} from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
-
-const API_BASE = 'https://api.vrchat.cloud/api/1';
-
-const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 
 type VrcFriendApi = {
     id: string;
@@ -14,7 +17,10 @@ type VrcFriendApi = {
     status?: string;
     statusDescription?: string;
     userIcon?: string;
+    iconUrl?: string;
+    imageUrl?: string;
     profilePicOverride?: string;
+    profilePicOverrideThumbnail?: string;
     currentAvatarThumbnailImageUrl?: string;
     currentAvatarImageUrl?: string;
     location: string;
@@ -30,7 +36,10 @@ type VrcUserApi = {
     displayName: string;
     statusDescription?: string;
     userIcon?: string;
+    iconUrl?: string;
+    imageUrl?: string;
     profilePicOverride?: string;
+    profilePicOverrideThumbnail?: string;
     currentAvatarThumbnailImageUrl?: string;
     currentAvatarImageUrl?: string;
     last_login?: string;
@@ -50,6 +59,11 @@ type VrcInstanceApi = {
     n_users?: number;
     userCount?: number;
     capacity?: number;
+    displayName?: string;
+    description?: string;
+    categoryName?: string;
+    vibeNames?: string[];
+    languages?: string[];
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -83,9 +97,6 @@ const parseGroup = (value: unknown): VrcGroupApi | null => {
     return value as VrcGroupApi;
 };
 
-const parseInstance = (value: unknown): VrcInstanceApi | null =>
-    isObject(value) ? (value as VrcInstanceApi) : null;
-
 // Server-side in-memory caches (survive across requests, reset on server restart)
 const serverGroupCache = new Map<string, { name: string; cachedAt: number }>();
 const serverWorldCache = new Map<string, { name: string; thumbnailImageUrl?: string; cachedAt: number }>();
@@ -99,19 +110,15 @@ export async function GET(req: NextRequest) {
     }
 
     const cookieStore = await cookies();
-    const authCookie = cookieStore.get('auth')?.value;
+    const headers = buildVrcHeaders(
+        cookieStore.get('auth')?.value,
+        cookieStore.get('twoFactorAuth')?.value
+    );
 
-    if (!authCookie) {
+    if (!headers) {
         console.log('[FriendsAPI] Not authenticated. No auth cookie present.');
         return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-
-    // Build Headers
-    const headers: Record<string, string> = {
-        'User-Agent': USER_AGENT,
-        'Accept': 'application/json',
-        'Cookie': `auth=${authCookie}`
-    };
 
 
     try {
@@ -124,7 +131,7 @@ export async function GET(req: NextRequest) {
 
         while (friendsHasMore) {
             try {
-                const res = await fetch(`${API_BASE}/auth/user/friends?offline=false&n=100&offset=${friendOffset}`, {
+                const res = await fetch(`${VRC_API_BASE}/auth/user/friends?offline=false&n=100&offset=${friendOffset}`, {
                     method: 'GET',
                     headers
                 });
@@ -170,7 +177,7 @@ export async function GET(req: NextRequest) {
 
         while (hasMore) {
             try {
-                const favRes = await fetch(`${API_BASE}/favorites?type=friend&n=100&offset=${offset}`, { headers });
+                const favRes = await fetch(`${VRC_API_BASE}/favorites?type=friend&n=100&offset=${offset}`, { headers });
                 if (favRes.ok) {
                     const favs = parseFavoriteArray(await favRes.json());
                     if (favs.length > 0) {
@@ -235,10 +242,21 @@ export async function GET(req: NextRequest) {
                 const batch = offlineFavoriteIdList.slice(i, i + BATCH_SIZE);
                 await Promise.all(batch.map(async (userId) => {
                     try {
-                        const userRes = await fetch(`${API_BASE}/users/${userId}`, { headers });
+                        const userRes = await fetch(`${VRC_API_BASE}/users/${userId}`, { headers });
                         if (userRes.ok) {
                             const userData = parseUser(await userRes.json());
                             if (userData) {
+                                if (!pickUserImageUrl(userData)) {
+                                    try {
+                                        const profileRes = await fetch(`${VRC_API_BASE}/profile/${userId}`, { headers });
+                                        if (profileRes.ok) {
+                                            const profile = await profileRes.json();
+                                            Object.assign(userData, profile);
+                                        }
+                                    } catch {
+                                        console.error(`Failed to fetch profile for offline favorite ${userId}`);
+                                    }
+                                }
                                 offlineFavoriteFriends.push(userData);
                             }
                         }
@@ -333,7 +351,7 @@ export async function GET(req: NextRequest) {
             }
             for (let attempt = 0; attempt < 2; attempt++) {
                 try {
-                    const gRes = await fetch(`${API_BASE}/groups/${gid}`, { headers });
+                    const gRes = await fetch(`${VRC_API_BASE}/groups/${gid}`, { headers });
                     if (gRes.ok) {
                         const gData = parseGroup(await gRes.json());
                         if (gData && gData.name) {
@@ -379,7 +397,7 @@ export async function GET(req: NextRequest) {
             const batch = uncachedWorldIds.slice(i, i + BATCH_SIZE);
             await Promise.all(batch.map(async (wid) => {
                 try {
-                    const wRes = await fetch(`${API_BASE}/worlds/${wid}`, { headers });
+                    const wRes = await fetch(`${VRC_API_BASE}/worlds/${wid}`, { headers });
                     if (wRes.ok) {
                         const wData = parseWorld(await wRes.json());
                         if (wData) {
@@ -417,19 +435,27 @@ export async function GET(req: NextRequest) {
         
         console.log(`[FriendsAPI] Fetching info for ${instanceList.length} unique instances`);
 
+        const catalog = await getInstanceCatalog(headers);
+
         for (let i = 0; i < instanceList.length; i += BATCH_SIZE) {
             const batch = instanceList.slice(i, i + BATCH_SIZE);
             await Promise.all(batch.map(async (loc) => {
                 try {
-                    // Instance API format: /instances/{worldId}:{instanceId}
-                    const instRes = await fetch(`${API_BASE}/instances/${loc}`, { headers });
+                    const instRes = await fetch(`${VRC_API_BASE}/instances/${loc}`, { headers });
                     if (instRes.ok) {
                         const rawData = await instRes.json();
-                        console.log(`[FriendsAPI] Instance ${loc}: n_users=${rawData?.n_users}, userCount=${rawData?.userCount}, capacity=${rawData?.capacity}`);
-                        const instData = parseInstance(rawData);
-                        if (instData) {
-                            instanceMap.set(loc, instData);
-                        }
+                        const extras = parseInstanceExtras(rawData, catalog);
+                        console.log(`[FriendsAPI] Instance ${loc}: n_users=${extras.n_users}, userCount=${extras.userCount}, capacity=${extras.capacity}`);
+                        instanceMap.set(loc, {
+                            n_users: extras.n_users,
+                            userCount: extras.userCount,
+                            capacity: extras.capacity,
+                            displayName: extras.displayName || undefined,
+                            description: extras.description || undefined,
+                            categoryName: extras.categoryName || undefined,
+                            vibeNames: extras.vibeNames,
+                            languages: extras.languages,
+                        });
                     }
                 } catch {
                     console.error(`Failed to fetch instance ${loc}`);
@@ -461,7 +487,7 @@ export async function GET(req: NextRequest) {
                 const batch = ownerIdList.slice(i, i + BATCH_SIZE);
                 await Promise.all(batch.map(async (userId) => {
                     try {
-                        const userRes = await fetch(`${API_BASE}/users/${userId}`, { headers });
+                        const userRes = await fetch(`${VRC_API_BASE}/users/${userId}`, { headers });
                         if (userRes.ok) {
                             const userData = parseUser(await userRes.json());
                             if (userData) {
@@ -523,10 +549,11 @@ export async function GET(req: NextRequest) {
             }
 
             const instData = instanceMap.get(f.location);
-            const instanceUserCount = typeof instData?.n_users === 'number' ? instData.n_users : null;
+            const instanceUserCount = typeof instData?.n_users === 'number'
+                ? instData.n_users
+                : typeof instData?.userCount === 'number' ? instData.userCount : null;
             const instanceCapacity = typeof instData?.capacity === 'number' ? instData.capacity : null;
 
-            // Get favorite group for this friend
             const favoriteGroup = favoriteGroups.get(f.id) || null;
 
             return {
@@ -534,13 +561,14 @@ export async function GET(req: NextRequest) {
                 name: f.displayName,
                 status: f.status,
                 statusMsg: f.statusDescription,
-                icon: f.userIcon || f.profilePicOverride || f.currentAvatarThumbnailImageUrl || f.currentAvatarImageUrl || '',
+                icon: pickUserImageUrl(f),
+                userIcon: pickUserImageUrl(f),
                 location: f.location,
                 worldName,
                 worldImageUrl,
                 isPrivate,
                 isFavorite,
-                favoriteGroup,  // e.g., "group_0", "group_1", etc.
+                favoriteGroup,
                 instanceType: instanceInfo.instanceType,
                 ownerId: instanceInfo.ownerId,
                 ownerName,
@@ -548,18 +576,25 @@ export async function GET(req: NextRequest) {
                 groupName,
                 instanceUserCount,
                 instanceCapacity,
+                instanceDisplayName: instData?.displayName || null,
+                instanceDescription: instData?.description || null,
+                instanceCategory: instData?.categoryName || null,
+                instanceVibes: instData?.vibeNames || [],
+                instanceLanguages: instData?.languages || [],
             };
         });
 
         // Transform offline favorite friends
         const simplifiedOfflineFriends = offlineFavoriteFriends.map((f) => {
             const favoriteGroup = favoriteGroups.get(f.id) || null;
+            const icon = pickUserImageUrl(f);
             return {
                 id: f.id,
                 name: f.displayName,
                 status: 'offline',
                 statusMsg: f.statusDescription,
-                icon: f.userIcon || f.profilePicOverride || f.currentAvatarThumbnailImageUrl || f.currentAvatarImageUrl || '',
+                icon,
+                userIcon: icon,
                 location: 'offline',
                 worldName: 'Offline',
                 worldImageUrl: null,

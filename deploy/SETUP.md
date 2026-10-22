@@ -24,7 +24,7 @@
 
 ## 現在の状態
 
-- **Node 20**: nvm でインストール済み
+- **Node 24**: `.nvmrc` は 24。main へのデプロイが `nvm install` でこのバージョンを入れ、PM2 もその Node で再起動する
 - **vrcsocial**: PM2 で起動中（ポート 3001）。`pm2 save` 済み、`pm2 startup` 済み。再起動後も自動復帰する
 - **cloudflared**: `~/.local/bin` に配置済み。ユーザーサービス `cloudflared` で稼働中。再起動後も自動起動
 - **actions-runner**: `~/actions-runner` に設定・登録済み。ユーザーサービス `actions-runner` で稼働中。再起動後も自動起動

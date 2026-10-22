@@ -214,6 +214,8 @@ export default function GraphPage() {
     }, []);
 
     useEffect(() => {
+        // localStorage is only available after mount.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate logs once the client can read storage
         loadLogs();
     }, [loadLogs]);
 
@@ -434,7 +436,10 @@ export default function GraphPage() {
         const totalDurationHours = allEntries.reduce((sum, entry) => sum + getEntryDurationMs(entry), 0) / (1000 * 60 * 60);
         const uniqueUsers = new Set(allEntries.map(entry => entry.user)).size;
         const uniqueWorlds = new Set(allEntries.map(entry => entry.world)).size;
-        const activeSessions = allEntries.filter(entry => Date.now() - entry.endTime.getTime() < 60 * 1000).length;
+        // The active-session count is a snapshot of "now" for the current entries.
+        // eslint-disable-next-line react-hooks/purity -- clock read is the value being displayed
+        const now = Date.now();
+        const activeSessions = allEntries.filter(entry => now - entry.endTime.getTime() < 60 * 1000).length;
         return { totalDurationHours, uniqueUsers, uniqueWorlds, activeSessions };
     }, [allEntries]);
 

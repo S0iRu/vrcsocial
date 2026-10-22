@@ -427,7 +427,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             }
         }, INSTANCE_FETCH_DEBOUNCE);
     }, []);
-    fetchInstanceInfoRef.current = fetchInstanceInfo;
+    useEffect(() => {
+        fetchInstanceInfoRef.current = fetchInstanceInfo;
+    }, [fetchInstanceInfo]);
 
     // Rebuild instances from friendsDataRef
     const rebuildInstances = useCallback(() => {
@@ -572,7 +574,9 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         setInstances(sortedInstances);
         setLastUpdated(new Date());
     }, []);
-    rebuildInstancesRef.current = rebuildInstances;
+    useEffect(() => {
+        rebuildInstancesRef.current = rebuildInstances;
+    }, [rebuildInstances]);
 
     // Enrich friend data with group name and instance info after location change
     const enrichFriendData = useCallback(async (userId: string, location: string) => {
@@ -1118,10 +1122,15 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
     // Ref for fetchFriends to avoid stale closures in connectSSE
     const fetchFriendsRef = useRef(fetchFriends);
-    fetchFriendsRef.current = fetchFriends;
+    useEffect(() => {
+        fetchFriendsRef.current = fetchFriends;
+    }, [fetchFriends]);
 
     // Track authentication state for SSE management (ref to avoid stale closures)
     const isAuthenticatedRef = useRef(false);
+    // Effects below read this ref. Updating it here keeps logout/login visible before they run.
+    // eslint-disable-next-line react-hooks/immutability, react-hooks/refs -- ref mirrors state for async SSE callbacks
+    isAuthenticatedRef.current = isAuthenticated;
 
     // Disconnect SSE
     const disconnectSSE = useCallback(() => {
@@ -1135,6 +1144,8 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
         }
         setWsConnectionState('disconnected');
     }, []);
+
+    const connectSSERef = useRef<() => void>(() => {});
 
     // Connect to SSE
     const connectSSE = useCallback(() => {
@@ -1181,7 +1192,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             reconnectTimeoutRef.current = setTimeout(() => {
                 if (isAuthenticatedRef.current) {
                     console.log('[FriendsProvider] Attempting SSE reconnect...');
-                    connectSSE();
+                    connectSSERef.current();
                 }
             }, 5000);
         });
@@ -1211,17 +1222,19 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
             reconnectTimeoutRef.current = setTimeout(() => {
                 if (isAuthenticatedRef.current) {
-                    connectSSE();
+                    connectSSERef.current();
                 }
             }, 5000);
         };
 
     }, [handleSSEEvent, disconnectSSE]);
 
+    useEffect(() => {
+        connectSSERef.current = connectSSE;
+    }, [connectSSE]);
+
     // Update auth ref when state changes and manage SSE connection
     useEffect(() => {
-        isAuthenticatedRef.current = isAuthenticated;
-        
         if (!isAuthenticated && eventSourceRef.current) {
             console.log('[FriendsProvider] User logged out, disconnecting SSE');
             disconnectSSE();
@@ -1230,6 +1243,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
 
     // Initialize and auto-reload every 5 minutes
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- initial friend load starts the SSE session
         fetchFriends().then(() => {
             if (isAuthenticatedRef.current) {
                 connectSSE();

@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Next 16 writes an AGENTS.md on `next dev` unless this is off.
+  agentRules: false,
   // Security: Restrict external images to trusted domains only
   images: {
     remotePatterns: [

@@ -34,6 +34,29 @@ export function vrchatWorldPageUrl(locationOrWorldId: string): string | null {
     return worldId.startsWith('wrld_') ? `https://vrchat.com/home/world/${worldId}` : null;
 }
 
+export function groupIdFromLocation(location: string): string {
+    const match = location.match(/~group\((grp_[^)]+)\)/);
+    return match?.[1] ?? '';
+}
+
+export function regionLabelFromCode(code: string): string {
+    switch (code.toLowerCase()) {
+        case 'jp': return 'JP';
+        case 'eu': return 'EU';
+        case 'use': return 'US East';
+        case 'usw': return 'US West';
+        case 'us': return 'US';
+        default: return code.toUpperCase();
+    }
+}
+
+export function regionLabelFromLocation(location: string): string {
+    const raw = location.split(':')[1] ?? '';
+    const regionMatch = raw.match(/~region\(([^)]+)\)/);
+    if (!regionMatch) return '';
+    return regionLabelFromCode(regionMatch[1]);
+}
+
 export function isHiddenPrivateLocation(location: string): boolean {
     return location === 'private';
 }

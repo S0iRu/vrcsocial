@@ -1,10 +1,11 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { appendActivityLog, replaceLatestPlacePlaceholder } from '@/lib/activityLog';
 import { instanceTypeFromApi, isHiddenPrivateLocation, pickUserImageUrl } from '@/lib/vrcFields';
 
 // Types
-type Friend = {
+export type Friend = {
     id: string;
     displayName?: string;
     name: string;
@@ -48,7 +49,7 @@ type GroupInfo = {
     cachedAt: number;
 };
 
-type InstanceGroup = {
+export type InstanceGroup = {
     id: string;
     worldName: string;
     instanceType: string;
@@ -125,6 +126,7 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'rec
 
 interface FriendsContextType {
     instances: InstanceGroup[];
+    onlineFriends: Friend[];
     offlineFriends: Friend[];
     loading: boolean;
     isAuthenticated: boolean;
@@ -135,6 +137,7 @@ interface FriendsContextType {
 
 const FriendsContext = createContext<FriendsContextType>({
     instances: [],
+    onlineFriends: [],
     offlineFriends: [],
     loading: true,
     isAuthenticated: false,
@@ -191,31 +194,16 @@ const parseInstanceInfo = (location: string) => {
 // Convert VRChat API instance type to display type
 const convertInstanceType = instanceTypeFromApi;
 
-// Helper to add a log entry
-const addLogEntry = (type: string, user: string, detail: string, color: string) => {
-    const now = new Date();
-    const timeStr = `${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    
-    const newLog = {
-        id: Date.now() + Math.random(),
-        date: timeStr,
-        type,
-        user,
-        detail,
-        color
-    };
-
-    try {
-        const existing = JSON.parse(localStorage.getItem('vrc_logs') || '[]');
-        const updated = [newLog, ...existing].slice(0, 500);
-        localStorage.setItem('vrc_logs', JSON.stringify(updated));
-    } catch (error: unknown) {
-        console.error('Log save error', error);
-    }
+const placeDetail = (location: string, worldName?: string) => {
+    if (location === 'private') return 'Private World';
+    if (location === 'traveling') return 'Traveling';
+    if (location === 'offline') return 'Offline';
+    return worldName || 'Online';
 };
 
 export const FriendsProvider = ({ children }: { children: React.ReactNode }) => {
     const [instances, setInstances] = useState<InstanceGroup[]>([]);
+    const [onlineFriends, setOnlineFriends] = useState<Friend[]>([]);
     const [offlineFriends, setOfflineFriends] = useState<Friend[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -571,6 +559,13 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 return 0;
             });
 
+        const online: Friend[] = [];
+        friendsDataRef.current.forEach((friend) => {
+            if (!friend.location || friend.location === 'offline') return;
+            const timestamp = locationTimestampsRef.current.get(friend.id);
+            online.push({ ...friend, joinedAt: timestamp?.joinedAt });
+        });
+        setOnlineFriends(online);
         setInstances(sortedInstances);
         setLastUpdated(new Date());
     }, []);
@@ -773,6 +768,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 setIsAuthenticated(false);
                 isAuthenticatedRef.current = false;
                 setInstances([]);
+                setOnlineFriends([]);
                 offlineFriendsRef.current.clear();
                 setOfflineFriends([]);
             }
@@ -780,6 +776,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
             console.error(error);
             isAuthenticatedRef.current = false;
             setInstances([]);
+            setOnlineFriends([]);
         } finally {
             setLoading(false);
         }
@@ -811,15 +808,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         worldImageUrl = cached.thumbnailImageUrl;
                     } else {
                         fetchWorldInfo(worldId).then((info) => {
-                            if (info) {
-                                const friend = friendsDataRef.current.get(userId);
-                                if (friend?.location === location) {
-                                    friend.worldName = info.name;
-                                    friend.worldImageUrl = info.thumbnailImageUrl;
-                                    friendsDataRef.current.set(userId, friend);
-                                    rebuildInstances();
-                                }
-                            }
+                            if (!info) return;
+                            const friend = friendsDataRef.current.get(userId);
+                            if (friend?.location !== location) return;
+                            friend.worldName = info.name;
+                            friend.worldImageUrl = info.thumbnailImageUrl;
+                            friendsDataRef.current.set(userId, friend);
+                            rebuildInstances();
+                            if (isFavorite) replaceLatestPlacePlaceholder(userId, info.name);
                         });
                     }
                 }
@@ -861,7 +857,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 }
 
                 if (isFavorite) {
-                    addLogEntry('OnLine', user.displayName, worldName || 'Online', 'text-green-400');
+                    appendActivityLog({
+                        type: 'OnLine',
+                        user: user.displayName,
+                        userId,
+                        detail: placeDetail(location, worldName),
+                        status: typeof user.status === 'string' ? user.status : 'active',
+                        color: 'text-green-400',
+                    });
                 }
                 rebuildInstances();
 
@@ -876,7 +879,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 const previousLocation = friend?.location;
 
                 if (friend?.isFavorite) {
-                    addLogEntry('Offline', friend.name || friend.displayName || userId, 'Went Offline', 'text-slate-500');
+                    appendActivityLog({
+                        type: 'Offline',
+                        user: friend.name || friend.displayName || userId,
+                        userId,
+                        detail: 'Went Offline',
+                        status: 'offline',
+                        color: 'text-slate-500',
+                    });
                     offlineFriendsRef.current.set(userId, {
                         ...friend,
                         location: 'offline',
@@ -919,15 +929,14 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                         worldImageUrl = cached.thumbnailImageUrl;
                     } else {
                         fetchWorldInfo(worldId).then((info) => {
-                            if (info) {
-                                const friend = friendsDataRef.current.get(userId);
-                                if (friend?.location === location) {
-                                    friend.worldName = info.name;
-                                    friend.worldImageUrl = info.thumbnailImageUrl;
-                                    friendsDataRef.current.set(userId, friend);
-                                    rebuildInstances();
-                                }
-                            }
+                            if (!info) return;
+                            const friend = friendsDataRef.current.get(userId);
+                            if (friend?.location !== location) return;
+                            friend.worldName = info.name;
+                            friend.worldImageUrl = info.thumbnailImageUrl;
+                            friendsDataRef.current.set(userId, friend);
+                            rebuildInstances();
+                            if (isFavorite) replaceLatestPlacePlaceholder(userId, info.name);
                         });
                     }
                 }
@@ -995,9 +1004,27 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                 }
 
                 if (isFavorite && hasLocationChanged) {
-                    const newWorldName = worldName || (location === 'private' ? 'Private World' : existingFriend?.worldName || 'Unknown');
-                    const logDetail = `${prevWorldName} → ${newWorldName}`;
-                    addLogEntry('GPS', user.displayName, logDetail, 'text-orange-400');
+                    const status = (typeof user.status === 'string' && user.status) || existingFriend?.status || 'active';
+                    if (location === 'offline') {
+                        appendActivityLog({
+                            type: 'Offline',
+                            user: user.displayName,
+                            userId,
+                            detail: 'Went Offline',
+                            status: 'offline',
+                            color: 'text-slate-500',
+                        });
+                    } else {
+                        const logDetail = `${prevWorldName} → ${placeDetail(location, worldName)}`;
+                        appendActivityLog({
+                            type: 'GPS',
+                            user: user.displayName,
+                            userId,
+                            detail: logDetail,
+                            status,
+                            color: 'text-orange-400',
+                        });
+                    }
                 }
                 rebuildInstances();
 
@@ -1023,11 +1050,25 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
                     const prevStatusMsg = existingFriend.statusMsg;
 
                     if (isFavorite && prevStatus && newStatus && prevStatus !== newStatus) {
-                        addLogEntry('Status', user.displayName, `${prevStatus} → ${newStatus}`, 'text-cyan-400');
+                        appendActivityLog({
+                            type: 'Status',
+                            user: user.displayName,
+                            userId,
+                            detail: `${prevStatus} → ${newStatus}`,
+                            status: newStatus,
+                            color: 'text-cyan-400',
+                        });
                     }
 
                     if (isFavorite && prevStatusMsg !== (newStatusMsg ?? existingFriend.statusMsg) && (newStatusMsg ?? existingFriend.statusMsg)) {
-                        addLogEntry('StatusMsg', user.displayName, newStatusMsg ?? existingFriend.statusMsg ?? '', 'text-purple-400');
+                        appendActivityLog({
+                            type: 'StatusMsg',
+                            user: user.displayName,
+                            userId,
+                            detail: newStatusMsg ?? existingFriend.statusMsg ?? '',
+                            status: newStatus || existingFriend.status,
+                            color: 'text-purple-400',
+                        });
                     }
 
                     friendsDataRef.current.set(userId, {
@@ -1271,6 +1312,7 @@ export const FriendsProvider = ({ children }: { children: React.ReactNode }) => 
     return (
         <FriendsContext.Provider value={{
             instances,
+            onlineFriends,
             offlineFriends,
             loading,
             isAuthenticated,

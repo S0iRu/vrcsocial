@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { Star, History, LogOut, BarChart3 } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Star, History, LogOut, BarChart3, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { pickUserImageUrl } from '@/lib/vrcFields';
 
@@ -19,13 +20,13 @@ type SidebarUser = {
 const Sidebar = () => {
   const [user, setUser] = useState<SidebarUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const pathname = usePathname();
 
   useEffect(() => {
     const fetchUser = async () => {
       if (typeof window === 'undefined') return;
 
       try {
-        // Authentication handled via httpOnly cookies
         const res = await fetch('/api/user', {
           credentials: 'include'
         });
@@ -50,7 +51,6 @@ const Sidebar = () => {
     } catch (e) {
       console.error('Logout error:', e);
     }
-    // Clear any remaining localStorage data
     if (typeof window !== 'undefined') {
       localStorage.removeItem('vrc_logs');
     }
@@ -58,85 +58,76 @@ const Sidebar = () => {
   };
 
   const navItems = [
-    { icon: Star, label: 'Favorites', href: '/' },
-    { icon: History, label: 'Logs', href: '/logs' },
-    { icon: BarChart3, label: 'Graph', href: '/graph' },
+    { icon: Star, label: 'Favorites', shortLabel: 'Favorites', href: '/' },
+    { icon: Users, label: 'Group Instances', shortLabel: 'Groups', href: '/groups' },
+    { icon: History, label: 'Logs', shortLabel: 'Logs', href: '/logs' },
+    { icon: BarChart3, label: 'Graph', shortLabel: 'Graph', href: '/graph' },
   ];
 
   const avatarUrl = pickUserImageUrl(user);
 
   return (
     <>
-      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-64 glass border-r border-white/5 flex-col z-50">
-        <div className="p-6">
-          <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
-            VRC Social
-          </h1>
-          <p className="text-xs text-muted-foreground mt-1">Companion App</p>
-        </div>
+      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-60 bg-[var(--bg)] border-r border-[var(--line)] flex-col z-50 px-6 py-8">
+        <Link href="/" className="block">
+          <p className="font-display text-[1.7rem] leading-none">VRC</p>
+          <p className="kicker mt-2">Social</p>
+        </Link>
 
-        <nav className="flex-1 px-4 space-y-2 mt-4">
-          {navItems.map((item) => (
+        <nav className="flex-1 mt-12">
+          {navItems.map((item) => {
+            const active = item.href === '/' ? pathname === '/' : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl text-slate-300 hover:text-white hover:bg-white/5 transition-all duration-200 group"
+              className={`flex items-center gap-3 py-3 border-t border-[var(--line)] text-sm tracking-wide transition-colors ${active ? 'text-[var(--fg)]' : 'text-[var(--faint)] hover:text-[var(--fg)]'}`}
             >
-              <item.icon className="w-5 h-5 text-indigo-400 group-hover:text-cyan-400 transition-colors" />
+              <item.icon className={`w-4 h-4 ${active ? 'text-[#5b9dff]' : ''}`} />
               {item.label}
             </Link>
-          ))}
+            );
+          })}
         </nav>
 
-        <div className="p-4 border-t border-white/5">
-          <div className="glass-card p-3 rounded-xl flex items-center gap-3 relative pr-10">
-            {loading ? (
-              <>
-                <div className="w-10 h-10 rounded-full bg-slate-700 animate-pulse shrink-0"></div>
-                <div className="overflow-hidden min-w-0 flex-1">
-                  <div className="h-4 bg-slate-700 rounded animate-pulse w-24"></div>
-                  <div className="h-3 bg-slate-700 rounded animate-pulse w-16 mt-1.5"></div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold overflow-hidden shadow-sm border border-white/10 shrink-0">
-                  {avatarUrl ? (
-                    <Image src={avatarUrl} alt="User" width={40} height={40} className="w-full h-full object-cover" unoptimized />
-                  ) : (
-                    'U'
-                  )}
-                </div>
-                <div className="overflow-hidden min-w-0">
-                  <p className="text-sm font-medium text-white truncate leading-tight">{user?.displayName || 'Guest'}</p>
-                  <p className="text-xs text-green-400 truncate mt-0.5">{user ? 'Online' : 'Offline'}</p>
-                </div>
-              </>
-            )}
-
-            <button
-              onClick={handleLogout}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-rose-400 hover:bg-white/5 rounded-lg transition-colors"
-              title="Log Out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+        <div className="border-t border-[var(--line)] pt-4 flex items-center gap-3">
+          {loading ? (
+            <div className="h-10 flex-1 bg-[var(--surface)] animate-pulse"></div>
+          ) : (
+            <>
+              <div className="w-9 h-9 overflow-hidden border border-[var(--line)] shrink-0 flex items-center justify-center text-xs">
+                {avatarUrl ? (
+                  <Image src={avatarUrl} alt="" width={36} height={36} className="w-full h-full object-cover" unoptimized />
+                ) : (
+                  'U'
+                )}
+              </div>
+              <div className="overflow-hidden min-w-0 flex-1">
+                <p className="text-sm truncate leading-tight">{user?.displayName || 'Guest'}</p>
+                <p className="kicker mt-1">{user ? 'Online' : 'Offline'}</p>
+              </div>
+            </>
+          )}
+          <button onClick={handleLogout} className="icon-btn shrink-0" title="Log Out">
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 glass border-t border-white/5 z-50 flex items-center justify-around px-2 pb-safe bg-[#0f172a]/90 backdrop-blur-xl">
-        {navItems.map((item) => (
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-[var(--bg)] border-t border-[var(--line)] z-50 flex items-center justify-around px-2">
+        {navItems.map((item) => {
+          const active = item.href === '/' ? pathname === '/' : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          return (
           <Link
             key={item.href}
             href={item.href}
-            className="flex flex-col items-center justify-center w-full h-full text-slate-400 hover:text-indigo-400 transition-colors gap-1"
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 text-[10px] tracking-wide ${active ? 'text-[#5b9dff]' : 'text-[var(--faint)]'}`}
           >
-            <item.icon className="w-5 h-5" />
-            <span className="text-[10px] font-medium">{item.label}</span>
+            <item.icon className="w-4 h-4" />
+            <span>{item.shortLabel}</span>
           </Link>
-        ))}
+          );
+        })}
       </nav>
     </>
   );

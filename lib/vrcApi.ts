@@ -4,6 +4,7 @@ export const VRC_USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
 export {
     asRecord,
     getTrustRank,
+    groupIdFromLocation,
     instanceTypeFromApi,
     isHiddenPrivateLocation,
     isInviteLocation,
@@ -15,6 +16,8 @@ export {
     pickNonEmptyString,
     pickStringArray,
     pickUserImageUrl,
+    regionLabelFromCode,
+    regionLabelFromLocation,
     vrchatWorldPageUrl,
 } from './vrcFields';
 

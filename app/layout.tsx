@@ -1,10 +1,29 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { IBM_Plex_Mono, Shippori_Mincho, Zen_Kaku_Gothic_New } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/layout/Sidebar";
 import { FriendsProvider } from "@/components/providers/FriendsProvider";
 
-const inter = Inter({ subsets: ["latin"] });
+const gothic = Zen_Kaku_Gothic_New({
+  weight: ["400", "500"],
+  subsets: ["latin"],
+  variable: "--font-gothic",
+  display: "swap",
+});
+
+const mincho = Shippori_Mincho({
+  weight: ["500", "600"],
+  subsets: ["latin"],
+  variable: "--font-mincho",
+  display: "swap",
+});
+
+const mono = IBM_Plex_Mono({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-plex",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "VRC Social",
@@ -17,20 +36,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.className} min-h-screen bg-background text-foreground antialiased selection:bg-indigo-500/30`}>
+    <html lang="en" className={`dark ${gothic.variable} ${mincho.variable} ${mono.variable}`}>
+      <body className="min-h-screen bg-background text-foreground antialiased selection:bg-[#5b9dff] selection:text-[#0e0e0e]">
         <FriendsProvider>
           <div className="flex min-h-screen relative overflow-hidden">
-            {/* Background Ambient Glow */}
-            <div className="fixed inset-0 z-0 pointer-events-none">
-              <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-600/10 blur-[120px]" />
-              <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-cyan-600/10 blur-[120px]" />
-            </div>
-
             <Sidebar />
 
-            <main className="flex-1 ml-0 md:ml-64 relative z-10 p-4 md:p-8 pb-24 md:pb-8">
-              <div className="max-w-7xl mx-auto">
+            <main className="flex-1 min-w-0 ml-0 md:ml-60 relative z-10 px-5 md:px-10 pt-8 md:pt-12 pb-24 md:pb-12">
+              <div className="max-w-6xl mx-auto">
                 {children}
               </div>
             </main>

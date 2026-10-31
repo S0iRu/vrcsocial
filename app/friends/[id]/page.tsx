@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useFriends } from "@/components/providers/FriendsProvider";
 import { vrchatWorldPageUrl } from "@/lib/vrcFields";
+import { statusColorClass } from "@/lib/presence";
 
 type FriendData = {
     id: string;
@@ -118,16 +119,6 @@ export default function FriendDetailsPage() {
         }
     }, [id]);
 
-    // Get status color (VRChat status values)
-    const getStatusColor = (status: string) => {
-        const s = (status || '').toLowerCase();
-        if (s === 'join me') return 'bg-blue-500';
-        if (s === 'ask me') return 'bg-orange-500';
-        if (s === 'busy' || s === 'do not disturb') return 'bg-red-500';
-        if (s === 'active' || s === 'online') return 'bg-green-500';
-        return 'bg-slate-500'; // offline or unknown
-    };
-
     // Get trust color (VRChat Trust System)
     const getTrustColor = (trust: string) => {
         switch (trust) {
@@ -151,11 +142,11 @@ export default function FriendDetailsPage() {
 
     if (error || !friend) {
         return (
-            <div className="space-y-6 pb-20">
+            <div className="space-y-6">
                 <Link href="/" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
                     <ArrowLeft className="w-4 h-4" /> Back to Favorites
                 </Link>
-                <div className="glass-card rounded-xl p-12 text-center">
+                <div className="glass-panel rounded-xl p-12 text-center">
                     <UserX className="w-16 h-16 text-slate-500 mx-auto mb-4" />
                     <h2 className="text-xl font-bold text-white mb-2">エラー</h2>
                     <p className="text-slate-400">{error || 'ユーザーが見つかりません'}</p>
@@ -170,16 +161,16 @@ export default function FriendDetailsPage() {
     const worldUrl = friend.world?.id ? vrchatWorldPageUrl(friend.world.id) : null;
 
     return (
-        <div className="space-y-6 pb-20">
+        <div className="space-y-6">
             {/* Back Button */}
             <Link href="/" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
                 <ArrowLeft className="w-4 h-4" /> Back to Favorites
             </Link>
 
             {/* Profile Header */}
-            <div className="relative rounded-2xl overflow-hidden glass-card group">
+            <div className="relative rounded-2xl overflow-hidden glass-panel group">
                 {/* Banner */}
-                <div className="h-48 bg-gradient-to-br from-indigo-900/50 to-slate-900 relative">
+                <div className="h-48 bg-[var(--surface)] relative">
                     {(friend.bannerUrl || friend.profilePicOverride) && (
                         <Image
                             src={friend.bannerUrl || friend.profilePicOverride}
@@ -190,13 +181,13 @@ export default function FriendDetailsPage() {
                             unoptimized
                         />
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent opacity-80"></div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent opacity-80"></div>
                 </div>
 
                 <div className="px-6 pb-6 relative -mt-16 flex flex-col md:flex-row items-start md:items-end gap-6">
                     {/* Avatar */}
                     <div className="relative">
-                        <div className="w-32 h-32 rounded-full border-4 border-[#0f172a] bg-slate-800 overflow-hidden">
+                        <div className="w-32 h-32 rounded-full border-4 border-background bg-slate-800 overflow-hidden">
                             {friend.icon ? (
                                 <Image src={friend.icon} alt={friend.name} width={128} height={128} className="w-full h-full object-cover" unoptimized />
                             ) : (
@@ -205,13 +196,13 @@ export default function FriendDetailsPage() {
                                 </div>
                             )}
                         </div>
-                        <div className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-[#0f172a] ${getStatusColor(friend.status)}`}></div>
+                        <div className={`absolute bottom-2 right-2 w-6 h-6 rounded-full border-4 border-background ${statusColorClass(friend.status)}`}></div>
                     </div>
 
                     {/* Name & Status */}
                     <div className="flex-1 mb-2">
                         <div className="flex items-center gap-3 flex-wrap">
-                            <h1 className="text-3xl font-bold text-white">{friend.name}</h1>
+                            <h1 className="font-display text-4xl">{friend.name}</h1>
                             <span className={`px-2 py-0.5 rounded text-xs font-semibold border uppercase tracking-wider ${getTrustColor(friend.trust)}`}>
                                 {friend.trust}
                             </span>
@@ -249,13 +240,13 @@ export default function FriendDetailsPage() {
             </div>
 
             {/* Links */}
-            <div className="glass-card p-4 rounded-2xl">
+            <div className="glass-panel p-4 rounded-2xl">
                 <div className="flex flex-wrap gap-2">
                     <a
                         href={`https://vrchat.com/home/user/${friend.id}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-indigo-200 text-sm font-medium transition-colors border border-indigo-500/30"
+                        className="line-btn"
                     >
                         <ExternalLink className="w-4 h-4" />
                         VRChat Profile
@@ -265,7 +256,7 @@ export default function FriendDetailsPage() {
                             href={worldUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 hover:text-cyan-200 text-sm font-medium transition-colors border border-cyan-500/30"
+                            className="line-btn"
                         >
                             <Globe className="w-4 h-4" />
                             World Page
@@ -276,7 +267,7 @@ export default function FriendDetailsPage() {
                             href={`https://vrchat.com/home/launch?worldId=${friend.location.split(':')[0]}&instanceId=${friend.location.split(':')[1]}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-300 hover:text-green-200 text-sm font-medium transition-colors border border-green-500/30"
+                            className="line-btn"
                         >
                             <MapPin className="w-4 h-4" />
                             Join Instance
@@ -286,7 +277,7 @@ export default function FriendDetailsPage() {
             </div>
 
             {friend.badges && friend.badges.length > 0 && (
-                <div className="glass-card p-6 rounded-2xl">
+                <div className="glass-panel p-6 rounded-2xl">
                     <h3 className="text-lg font-bold text-white mb-3">Badges</h3>
                     <div className="flex flex-wrap gap-3">
                         {friend.badges.map((badge) => (
@@ -314,7 +305,7 @@ export default function FriendDetailsPage() {
 
             {/* Bio */}
             {friend.bio && (
-                <div className="glass-card p-6 rounded-2xl">
+                <div className="glass-panel p-6 rounded-2xl">
                     <h3 className="text-lg font-bold text-white mb-3">Bio</h3>
                     <p className="text-slate-300 text-sm whitespace-pre-wrap">{friend.bio}</p>
                 </div>
@@ -322,7 +313,7 @@ export default function FriendDetailsPage() {
 
             {/* Social Links */}
             {friend.bioLinks && friend.bioLinks.length > 0 && (
-                <div className="glass-card p-6 rounded-2xl">
+                <div className="glass-panel p-6 rounded-2xl">
                     <h3 className="text-lg font-bold text-white mb-3">Social Links</h3>
                     <div className="flex flex-wrap gap-2">
                         {friend.bioLinks.map((link, index) => {
@@ -405,7 +396,7 @@ export default function FriendDetailsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left Column: Current Location */}
                 <div className="lg:col-span-2 space-y-6">
-                    <div className="glass-card p-6 rounded-2xl">
+                    <div className="glass-panel p-6 rounded-2xl">
                         <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                             <MapPin className="w-5 h-5 text-indigo-400" /> Current World
                         </h3>
@@ -528,7 +519,7 @@ export default function FriendDetailsPage() {
 
                 {/* Right Column: People in Instance */}
                 <div className="space-y-6">
-                    <div className="glass-card p-6 rounded-2xl h-full">
+                    <div className="glass-panel p-6 rounded-2xl h-full">
                         <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                             <Users className="w-5 h-5 text-green-400" /> 
                             Friends Here ({friendsInSameInstance.length})

@@ -105,22 +105,18 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[#0f172a] p-4 relative overflow-hidden">
-            <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-600/20 blur-[120px]" />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-cyan-600/20 blur-[120px]" />
-
-            <div className="w-full max-w-md glass-card p-8 rounded-2xl relative z-10 transition-all duration-300">
-                <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400 mb-2">
-                        VRC Social
-                    </h1>
-                    <p className="text-slate-400 text-sm">
-                        {step === 'login' ? 'Sign in with your VRChat account' : 'Enter 2-Factor Authentication Code'}
-                    </p>
-                </div>
+        <div className="min-h-[70vh] flex items-center justify-center">
+            <div className="w-full max-w-md border border-[var(--line)] p-8 md:p-10">
+                <p className="kicker">Account</p>
+                <h1 className="font-display text-4xl mt-3">
+                    VRC Social
+                </h1>
+                <p className="text-sm text-[var(--muted)] mt-3">
+                    {step === 'login' ? 'Sign in with your VRChat account' : 'Enter 2-Factor Authentication Code'}
+                </p>
 
                 {step === 'login' ? (
-                    <form onSubmit={handleLogin} className="space-y-6">
+                    <form onSubmit={handleLogin} className="space-y-6 mt-8">
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-400 uppercase ml-1">Username</label>
                             <div className="relative">
@@ -129,7 +125,7 @@ export default function LoginPage() {
                                     type="text"
                                     value={username}
                                     onChange={(e) => setUsername(e.target.value)}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                                    className="ink-field pl-10 pr-4 py-3"
                                     placeholder="VRChat Username"
                                     required
                                 />
@@ -144,7 +140,7 @@ export default function LoginPage() {
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                                    className="ink-field pl-10 pr-4 py-3"
                                     placeholder="••••••••"
                                     required
                                 />
@@ -166,20 +162,20 @@ export default function LoginPage() {
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="paper-btn w-full"
                         >
                             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Next <ArrowRight className="w-5 h-5" /></>}
                         </button>
 
                         <div className="text-center pt-2">
-                            <button type="button" onClick={handleTest} className="text-xs text-indigo-400 hover:text-indigo-300 underline">
+                            <button type="button" onClick={handleTest} className="text-xs tracking-wide text-[var(--faint)] hover:text-[var(--hover)]">
                                 Test API Connection
                             </button>
                         </div>
                     </form>
                 ) : (
 
-                    <form onSubmit={handleVerify} className="space-y-6">
+                    <form onSubmit={handleVerify} className="space-y-6 mt-8">
                         <div className="space-y-2">
                             <label className="text-xs font-bold text-slate-400 uppercase ml-1">Authentication Code</label>
                             <div className="relative">
@@ -198,7 +194,7 @@ export default function LoginPage() {
                                         const numericValue = halfWidth.replace(/[^0-9]/g, '');
                                         setCode(numericValue);
                                     }}
-                                    className="w-full bg-slate-900/50 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors tracking-widest text-center text-lg"
+                                    className="ink-field pl-10 pr-4 py-3 tracking-widest text-center text-lg"
                                     style={{ imeMode: 'disabled' }}
                                     placeholder="000000"
                                     maxLength={6}
@@ -224,7 +220,7 @@ export default function LoginPage() {
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="paper-btn w-full"
                         >
                             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify & Login <ArrowRight className="w-5 h-5" /></>}
                         </button>

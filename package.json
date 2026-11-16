@@ -24,9 +24,14 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.2",
-    "eslint": "^10.13.0",
+    "eslint": "^10.15.0",
     "eslint-config-next": "16.4.2",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.8"
+    }
   }
 }

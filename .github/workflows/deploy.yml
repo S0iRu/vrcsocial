@@ -32,7 +32,7 @@ jobs:
       - name: Start or restart PM2
         run: |
           # Actions starts this script with `set -e`. Sourcing nvm.sh then returns 127
-          # (command not found) before Node 24 exists, and the step stops on that line.
+          # (command not found) before Node 26 exists, and the step stops on that line.
           set +e
           export NVM_DIR="$HOME/.nvm"
           NODE_PATH="$(
@@ -63,11 +63,11 @@ jobs:
           export PATH="$NODE_BIN_DIR:$PATH"
           hash -r
           echo "Using $(node -v) at $(command -v node)"
-          node -v | grep -q '^v24\.' || { echo "Expected Node 24, got $(node -v)"; exit 1; }
+          node -v | grep -q '^v26\.' || { echo "Expected Node 26, got $(node -v)"; exit 1; }
           if ! command -v pm2 >/dev/null 2>&1; then
             npm install -g pm2
           fi
-          # Recreate the process so the saved interpreter is Node 24, not the previous Node.
+          # Recreate the process so the saved interpreter is Node 26, not the previous Node.
           if pm2 describe vrcsocial >/dev/null 2>&1; then
             pm2 delete vrcsocial
           fi

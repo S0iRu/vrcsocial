@@ -71,7 +71,8 @@ jobs:
           if pm2 describe vrcsocial >/dev/null 2>&1; then
             pm2 delete vrcsocial
           fi
-          pm2 start ecosystem.config.cjs --update-env
+          # Clear the runner's tracking ID so the job-end orphan cleanup does not kill the app PM2 just started.
+          RUNNER_TRACKING_ID="" pm2 start ecosystem.config.cjs --update-env
 
       - name: Verify deployment
         run: |

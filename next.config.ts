@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const nextConfig: NextConfig = {
   // Next 16 writes an AGENTS.md on `next dev` unless this is off.
   agentRules: false,
@@ -17,10 +19,6 @@ const nextConfig: NextConfig = {
       {
         protocol: 'https',
         hostname: 'files.vrchat.cloud',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.cloudfront.net',
       },
     ],
   },
@@ -42,9 +40,10 @@ const nextConfig: NextConfig = {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',
           },
+          // HTTPS でだけ有効になる。Cloudflare 経由の本番では常に HTTPS なので、以後 http で開かせない
           {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block',
+            key: 'Strict-Transport-Security',
+            value: 'max-age=31536000',
           },
           {
             key: 'Permissions-Policy',
@@ -54,7 +53,9 @@ const nextConfig: NextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              // 'unsafe-eval' が要るのは開発時（next dev の Fast Refresh）だけなので、本番では外す。
+              // 'unsafe-inline' は Next が埋め込むインラインスクリプトに必要（nonce 方式は全ページの動的描画が要るので見送り）
+              isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://*.vrchat.cloud https://api.vrchat.cloud https://files.vrchat.cloud https://*.cloudfront.net",

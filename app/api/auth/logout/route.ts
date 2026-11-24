@@ -1,22 +1,12 @@
-import { NextResponse } from 'next/server';
-import { cookies, headers } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { checkSameOrigin } from '@/lib/requestGuard';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
     // Basic CSRF protection - verify request origin
-    const headersList = await headers();
-    const origin = headersList.get('origin');
-    const host = headersList.get('host');
-
-    // In production, verify the origin matches our host
-    if (process.env.NODE_ENV === 'production' && origin) {
-        const allowedOrigins = [
-            `https://${host}`,
-            `http://${host}` // For development with production flag
-        ];
-        if (!allowedOrigins.some(allowed => origin.startsWith(allowed))) {
-            return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
-        }
-    }
+    // 本文の無い POST なので Content-Type は求めない（画面側は Content-Type を付けずに送っている）
+    const originError = checkSameOrigin(req);
+    if (originError) return originError;
 
     const cookieStore = await cookies();
     

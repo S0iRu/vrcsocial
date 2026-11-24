@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
-import { VRC_API_BASE, buildVrcHeaders } from '@/lib/vrcApi';
+import { VRC_API_BASE, buildVrcHeaders, isVrcId } from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +24,7 @@ export async function GET(
     const { id: worldId } = await params;
 
     // Input validation: World ID must match VRChat format
-    if (!worldId || typeof worldId !== 'string' || !worldId.startsWith('wrld_') || worldId.length > 50) {
+    if (!isVrcId('wrld', worldId)) {
         return NextResponse.json(
             { error: 'Invalid world ID' },
             { status: 400 }
@@ -45,7 +45,7 @@ export async function GET(
     }
 
     try {
-        const res = await fetch(`${VRC_API_BASE}/worlds/${worldId}`, { headers });
+        const res = await fetch(`${VRC_API_BASE}/worlds/${encodeURIComponent(worldId)}`, { headers });
 
         if (!res.ok) {
             console.error(`[WorldsAPI] Failed to fetch world ${worldId}:`, res.status);

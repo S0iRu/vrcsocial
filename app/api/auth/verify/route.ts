@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { checkJsonPost } from '@/lib/requestGuard';
 
 const API_BASE = 'https://api.vrchat.cloud/api/1';
 const USER_AGENT = 'VRCSocial/1.0.0 (GitHub: vrcsocial-dev)';
@@ -10,6 +11,9 @@ type HeadersWithSetCookie = Headers & {
 };
 
 export async function POST(req: NextRequest) {
+    const guardError = checkJsonPost(req);
+    if (guardError) return guardError;
+
     // Rate limiting check - 10 attempts per 15 minutes
     const rateCheck = checkRateLimit(req, 'verify');
     if (rateCheck.limited) {

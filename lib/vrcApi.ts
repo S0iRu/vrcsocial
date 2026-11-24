@@ -8,6 +8,8 @@ export {
     instanceTypeFromApi,
     isHiddenPrivateLocation,
     isInviteLocation,
+    isVrcId,
+    isVrcLocation,
     mergeProfileFields,
     parseBadges,
     parseInstanceExtras,

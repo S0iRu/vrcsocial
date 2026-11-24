@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
-import { VRC_API_BASE, buildVrcHeaders, getInstanceCatalog, parseInstanceExtras } from '@/lib/vrcApi';
+import { VRC_API_BASE, buildVrcHeaders, getInstanceCatalog, isVrcId, isVrcLocation, parseInstanceExtras } from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
     }
 
     const location = req.nextUrl.searchParams.get('location');
-    if (!location || !location.startsWith('wrld_') || !location.includes(':')) {
+    // location は検証済みの文字だけになるので、`:` や `~` を変換せずそのまま URL に入れる
+    if (!isVrcLocation(location)) {
         return NextResponse.json({ error: 'Invalid location' }, { status: 400 });
     }
 
@@ -40,9 +41,9 @@ export async function GET(req: NextRequest) {
         const extras = parseInstanceExtras(data, catalog);
 
         let ownerName: string | null = null;
-        if (extras.ownerId && extras.ownerId.startsWith('usr_')) {
+        if (isVrcId('usr', extras.ownerId)) {
             try {
-                const userRes = await fetch(`${VRC_API_BASE}/users/${extras.ownerId}`, { headers });
+                const userRes = await fetch(`${VRC_API_BASE}/users/${encodeURIComponent(extras.ownerId)}`, { headers });
                 if (userRes.ok) {
                     const userData = await userRes.json();
                     if (userData?.displayName) ownerName = userData.displayName;

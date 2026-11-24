@@ -29,6 +29,26 @@ export function pickUserImageUrl(source: unknown): string {
     );
 }
 
+const VRC_UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const VRC_ID_PATTERNS = {
+    usr: new RegExp(`^usr_${VRC_UUID}$`),
+    wrld: new RegExp(`^wrld_${VRC_UUID}$`),
+    grp: new RegExp(`^grp_${VRC_UUID}$`),
+};
+// インスタンス部は「名前~hidden(usr_...)~region(jp)~nonce(...)」の形。
+// `/` `?` `#` `.` などを通さないことで、VRChat API の別のパスを叩かせない。
+const VRC_LOCATION_PATTERN = new RegExp(`^wrld_${VRC_UUID}:[A-Za-z0-9_~()-]{1,300}$`);
+
+// ブラウザから受け取った ID をそのまま VRChat API の URL に埋め込むため、
+// 先頭一致ではなく形そのものを確認する（`grp_/../../auth/user` のような値を通さない）。
+export function isVrcId(kind: keyof typeof VRC_ID_PATTERNS, value: unknown): value is string {
+    return typeof value === 'string' && VRC_ID_PATTERNS[kind].test(value);
+}
+
+export function isVrcLocation(value: unknown): value is string {
+    return typeof value === 'string' && VRC_LOCATION_PATTERN.test(value);
+}
+
 export function vrchatWorldPageUrl(locationOrWorldId: string): string | null {
     const worldId = locationOrWorldId.startsWith('wrld_') ? locationOrWorldId.split(':')[0] : '';
     return worldId.startsWith('wrld_') ? `https://vrchat.com/home/world/${worldId}` : null;

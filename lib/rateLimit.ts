@@ -18,6 +18,16 @@ const RATE_LIMIT_CONFIG = {
         windowMs: 15 * 60 * 1000, // 15 minutes
         maxRequests: 5, // 5 login attempts per window
     },
+    // 接続元 IP を変えながら同じアカウントを試し続けられないよう、ユーザー名単位でも数える
+    loginUser: {
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        maxRequests: 10, // 10 attempts per username per window
+    },
+    // 「接続テスト」用 (GET /api/auth/login)。未ログインでも呼べるので絞る
+    loginTest: {
+        windowMs: 60 * 1000, // 1 minute
+        maxRequests: 10, // 10 requests per minute
+    },
     verify: {
         windowMs: 15 * 60 * 1000, // 15 minutes
         maxRequests: 10, // 10 2FA attempts per window
@@ -57,11 +67,16 @@ const RATE_LIMIT_CONFIG = {
 };
 
 // Get client identifier (IP address or fallback)
-function getClientId(req: NextRequest): string {
+// アプリは 127.0.0.1 でのみ待ち受け、接続してくるのは cloudflared だけなので、
+// Cloudflare が付ける CF-Connecting-IP を信頼できる。
+// X-Forwarded-For の先頭はクライアントが自由に書けるため使わない（書き換えるだけで制限を回避できてしまう）。
+// CF-Connecting-IP が無いとき（ローカル実行など）は、直前のプロキシが追記した末尾の値を使う。
+export function getClientId(req: NextRequest): string {
+    const cfIp = req.headers.get('cf-connecting-ip')?.trim();
+    if (cfIp) return cfIp;
     const forwarded = req.headers.get('x-forwarded-for');
-    const realIp = req.headers.get('x-real-ip');
-    const ip = forwarded?.split(',')[0]?.trim() || realIp || 'unknown';
-    return ip;
+    const lastHop = forwarded?.split(',').pop()?.trim();
+    return lastHop || 'unknown';
 }
 
 // Check if request should be rate limited
@@ -69,9 +84,16 @@ export function checkRateLimit(
     req: NextRequest,
     type: keyof typeof RATE_LIMIT_CONFIG
 ): { limited: boolean; remaining: number; resetIn: number } {
+    return checkRateLimitByKey(type, getClientId(req));
+}
+
+// 接続元 IP 以外（ユーザー名など）を単位に数えたいとき用
+export function checkRateLimitByKey(
+    type: keyof typeof RATE_LIMIT_CONFIG,
+    id: string
+): { limited: boolean; remaining: number; resetIn: number } {
     const config = RATE_LIMIT_CONFIG[type];
-    const clientId = getClientId(req);
-    const key = `${type}:${clientId}`;
+    const key = `${type}:${id}`;
     const now = Date.now();
 
     // Clean up expired entries periodically

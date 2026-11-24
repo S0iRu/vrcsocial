@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
-import { VRC_API_BASE, buildVrcHeaders } from '@/lib/vrcApi';
+import { VRC_API_BASE, buildVrcHeaders, isVrcId } from '@/lib/vrcApi';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +16,7 @@ export async function GET(
 
     const { id: groupId } = await params;
 
-    if (!groupId || typeof groupId !== 'string' || !groupId.startsWith('grp_') || groupId.length > 50) {
+    if (!isVrcId('grp', groupId)) {
         return NextResponse.json({ error: 'Invalid group ID' }, { status: 400 });
     }
 
@@ -31,7 +31,7 @@ export async function GET(
     }
 
     try {
-        const res = await fetch(`${VRC_API_BASE}/groups/${groupId}`, { headers });
+        const res = await fetch(`${VRC_API_BASE}/groups/${encodeURIComponent(groupId)}`, { headers });
 
         if (!res.ok) {
             return NextResponse.json({ error: 'Failed to fetch group' }, { status: res.status });

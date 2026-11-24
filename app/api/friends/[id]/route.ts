@@ -5,6 +5,7 @@ import {
     VRC_API_BASE,
     buildVrcHeaders,
     getInstanceCatalog,
+    isVrcId,
     mergeProfileFields,
     parseInstanceExtras,
     pickNonEmptyString,
@@ -109,7 +110,7 @@ export async function GET(
     const { id } = await params;
 
     // Input validation: User ID must match VRChat format
-    if (!id || typeof id !== 'string' || !id.startsWith('usr_') || id.length > 50) {
+    if (!isVrcId('usr', id)) {
         return NextResponse.json({ error: 'Invalid user ID format' }, { status: 400 });
     }
 
@@ -119,10 +120,11 @@ export async function GET(
     }
 
     try {
+        const userId = encodeURIComponent(id);
         const [userRes, profileRes, privateRes] = await Promise.all([
-            fetch(`${VRC_API_BASE}/users/${id}`, { headers }),
-            fetch(`${VRC_API_BASE}/profile/${id}`, { headers }),
-            fetch(`${VRC_API_BASE}/profile/${id}/private`, { headers }),
+            fetch(`${VRC_API_BASE}/users/${userId}`, { headers }),
+            fetch(`${VRC_API_BASE}/profile/${userId}`, { headers }),
+            fetch(`${VRC_API_BASE}/profile/${userId}/private`, { headers }),
         ]);
 
         if (!userRes.ok) {

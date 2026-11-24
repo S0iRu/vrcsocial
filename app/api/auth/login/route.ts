@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { checkRateLimit, rateLimitResponse } from '@/lib/rateLimit';
+import { checkRateLimit, checkRateLimitByKey, rateLimitResponse } from '@/lib/rateLimit';
+import { checkJsonPost } from '@/lib/requestGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,28 @@ type HeadersWithSetCookie = Headers & {
     getSetCookie?: () => string[];
 };
 
-export async function GET() {
+// 「接続テスト」の結果。未ログインでも呼べるので、呼ばれるたびに VRChat へ問い合わせないよう少しの間使い回す
+// 失敗は一時的なことが多いので、短めに持つ
+const CONFIG_CACHE_TTL = 60 * 1000;
+const CONFIG_ERROR_CACHE_TTL = 10 * 1000;
+let configCache: { body: Record<string, unknown>; status: number; fetchedAt: number } | null = null;
+
+export async function GET(req: NextRequest) {
+    const rateCheck = checkRateLimit(req, 'loginTest');
+    if (rateCheck.limited) {
+        return rateLimitResponse(rateCheck.resetIn);
+    }
+
+    const cacheTtl = configCache?.status === 200 ? CONFIG_CACHE_TTL : CONFIG_ERROR_CACHE_TTL;
+    if (configCache && Date.now() - configCache.fetchedAt < cacheTtl) {
+        return NextResponse.json(configCache.body, { status: configCache.status });
+    }
+
+    const remember = (body: Record<string, unknown>, status: number) => {
+        configCache = { body, status, fetchedAt: Date.now() };
+        return NextResponse.json(body, { status });
+    };
+
     try {
         const res = await fetch(`${API_BASE}/config`, {
             headers: { 'User-Agent': USER_AGENT }
@@ -24,15 +46,18 @@ export async function GET() {
             const appName = typeof data === 'object' && data !== null && 'appName' in data && typeof data.appName === 'string'
                 ? data.appName
                 : undefined;
-            return NextResponse.json({ status: 'ok', message: 'VRChat API Reachable', appName });
+            return remember({ status: 'ok', message: 'VRChat API Reachable', appName }, 200);
         }
-        return NextResponse.json({ status: 'error', code: res.status }, { status: 502 });
+        return remember({ status: 'error', code: res.status }, 502);
     } catch {
-        return NextResponse.json({ status: 'error', message: 'Service unavailable' }, { status: 500 });
+        return remember({ status: 'error', message: 'Service unavailable' }, 500);
     }
 }
 
 export async function POST(req: NextRequest) {
+    const guardError = checkJsonPost(req);
+    if (guardError) return guardError;
+
     // Rate limiting check - 5 attempts per 15 minutes
     const rateCheck = checkRateLimit(req, 'login');
     if (rateCheck.limited) {
@@ -52,6 +77,12 @@ export async function POST(req: NextRequest) {
         }
         if (!password || typeof password !== 'string' || password.length > 200) {
             return NextResponse.json({ error: 'Invalid password' }, { status: 400 });
+        }
+
+        // 同じアカウントへの試行は、接続元が変わっても合算して制限する
+        const userRateCheck = checkRateLimitByKey('loginUser', username.trim().toLowerCase());
+        if (userRateCheck.limited) {
+            return rateLimitResponse(userRateCheck.resetIn);
         }
 
         const credentials = Buffer.from(`${username}:${password}`).toString('base64');

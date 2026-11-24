@@ -31,7 +31,6 @@ export default function LoginPage() {
             });
 
             const data = await res.json();
-            console.log('[Login Debug] Status:', res.status, 'Data:', data);
 
             if (res.ok) {
                 // Authentication is now handled via httpOnly cookies only

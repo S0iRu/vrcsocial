@@ -4,7 +4,8 @@ module.exports = {
     {
       name: 'vrcsocial',
       script: 'npm',
-      args: 'start',
+      // Cloudflare Tunnel だけが接続するので、このPC内からの接続に限定する
+      args: 'start -- -H 127.0.0.1',
       interpreter: 'none',
       instances: 1,
       env: {
